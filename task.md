@@ -36,7 +36,8 @@ OpenSpec: зміна заархівована в `openspec/changes/archive/2026-
 ### ShareX (налаштовано 2026-11-13)
 
 - Окрема клавіша **Ctrl+Shift+F11**: захоплення області, далі ripper, без завантаження на хостинг. Ctrl+Shift+F12 і решта не змінені.
-- Action: `E:\Projects\Rust\src-tauri\target\release\ripper.exe`, аргументи `"$input" "$output"`, Output extension **`tex.png`**. З `png` ShareX передав би той самий файл, що й `$input`, і оригінал був би перезаписаний.
+- Action: `%LOCALAPPDATA%\Programs\ripper\ripper.exe` (копія release, щоб нові збірки не чіпали те, що запускає ShareX), аргументи `"$input" "$output"`, Output extension **`tex.png`**. З `png` ShareX передав би той самий файл, що й `$input`, і оригінал був би перезаписаний.
+- Інструкція з встановлення й підключення до ShareX англійською: `README.md`. Підписи звірені з ресурсами інтерфейсу ShareX 22.4.0.
 - Резервні копії старого конфігу: `C:\Users\ozyma\OneDrive\Documents\ShareX\*.json.before-ripper`.
 - Перевірено зі справжнім ShareX:
   - Enter — ShareX продовжує з `*.tex.png`, оригінал лишається;
