@@ -1,0 +1,11 @@
+# Rust / Tauri build output
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Backups and local noise
+*.bak
+*.bak[0-9]*
+*.log
+Thumbs.db
+desktop.ini

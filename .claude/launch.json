@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ui-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5178", "--bind", "127.0.0.1", "--directory", "E:\\Projects\\Rust\\ui"],
+      "port": 5178
+    },
+    {
+      "name": "oframe-reference",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5179", "--bind", "127.0.0.1", "--directory", "E:\\Projects\\Illustrator\\Plugins\\O'Frame"],
+      "port": 5179
+    }
+  ]
+}

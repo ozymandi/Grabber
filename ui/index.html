@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ripper</title>
+    <link rel="stylesheet" href="./css/otool.css">
+    <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+    <div class="shell">
+        <div class="stage" id="stage">
+            <canvas id="view"></canvas>
+            <canvas id="overlay"></canvas>
+        </div>
+
+        <aside class="side">
+            <main class="app">
+                <section class="panel">
+                    <h2>Source</h2>
+                    <div class="btn-row">
+                        <button id="openBtn" class="action-btn" type="button" title="Open an image file">OPEN</button>
+                        <button id="pasteBtn" class="action-btn" type="button" title="Paste an image from the clipboard (Ctrl+V)">PASTE</button>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Quads</h2>
+                        <span id="quadCount" class="panel-meta">0</span>
+                    </div>
+                    <ul id="quadList" class="quad-list"></ul>
+                    <p id="quadEmpty" class="sub">No quads yet</p>
+                </section>
+
+                <section class="panel">
+                    <h2>Aspect</h2>
+                    <div class="seg-row seg-row--5" id="aspectSeg" role="group" aria-label="Aspect">
+                        <button class="seg" type="button" data-aspect="edges" title="Size from the quad's edge lengths">EDGES</button>
+                        <button class="seg" type="button" data-aspect="1:1" title="Lock to 1:1">1:1</button>
+                        <button class="seg" type="button" data-aspect="4:3" title="Lock to 4:3">4:3</button>
+                        <button class="seg" type="button" data-aspect="2:1" title="Lock to 2:1">2:1</button>
+                        <button class="seg" type="button" data-aspect="custom" title="Lock to a custom ratio">CUSTOM</button>
+                    </div>
+                    <div class="pad-sides pad-sides--2" id="customRatio" hidden>
+                        <label class="pad-side">
+                            <span class="pad-side-label">W</span>
+                            <input id="ratioW" type="number" min="0.01" max="1000" step="1" value="1">
+                        </label>
+                        <label class="pad-side">
+                            <span class="pad-side-label">H</span>
+                            <input id="ratioH" type="number" min="0.01" max="1000" step="1" value="1">
+                        </label>
+                    </div>
+                    <label class="check">
+                        <input id="pot" type="checkbox">
+                        <span>Power of two</span>
+                    </label>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Preview</h2>
+                        <span id="previewSize" class="panel-meta"></span>
+                    </div>
+                    <div class="preview-box" id="previewBox">
+                        <canvas id="preview"></canvas>
+                        <div id="previewEmpty" class="preview-empty">No quad</div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>Output</h2>
+                    <div class="folder-slot">
+                        <label class="check">
+                            <input id="localOn" type="checkbox">
+                            <span>Local folder</span>
+                        </label>
+                        <div class="path-row">
+                            <input id="localDir" type="text" readonly placeholder="Not set">
+                            <button id="localBrowse" class="icon-btn" type="button" title="Choose the local folder" aria-label="Choose the local folder">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="folder-slot">
+                        <label class="check">
+                            <input id="driveOn" type="checkbox">
+                            <span>Google Drive folder</span>
+                        </label>
+                        <div class="path-row">
+                            <input id="driveDir" type="text" readonly placeholder="Not set">
+                            <button id="driveBrowse" class="icon-btn" type="button" title="Choose the Google Drive folder" aria-label="Choose the Google Drive folder">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="btn-row">
+                        <button id="saveAllBtn" class="action-btn" type="button" title="Save every quad to the enabled folders (Ctrl+S)">SAVE ALL</button>
+                        <button id="copyBtn" class="action-btn" type="button" title="Copy the active quad to the clipboard">COPY</button>
+                    </div>
+                    <button id="sendBtn" class="primary action-btn" type="button" title="Active quad to clipboard, folders and ShareX (Enter)">SEND ACTIVE</button>
+                </section>
+            </main>
+
+            <footer class="side-foot">
+                <section class="panel">
+                    <div class="status-row">
+                        <div class="status-left">
+                            <span id="statusDot" class="status-indicator status-indicator--info"></span>
+                            <div id="status" class="status" title="Starting...">Starting...</div>
+                        </div>
+                        <div class="status-actions">
+                            <button id="helpBtn" class="icon-btn info-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="helpOverlay" title="Help" aria-label="Open help">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="8" cy="8" r="7"></circle>
+                                    <path d="M8 11.5v.01M8 8.5c0-1.5 1.5-1.5 1.5-2.5S8.5 4.5 8 4.5 6.5 5.5 6.5 6"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </footer>
+        </aside>
+    </div>
+
+    <div id="helpOverlay" class="help-overlay" hidden>
+        <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+            <div class="help-head">
+                <div class="help-title-row">
+                    <div id="helpTitle" class="help-title">How To Use ripper</div>
+                    <span class="help-badge">part of O'Tool</span>
+                </div>
+                <button id="helpClose" class="icon-btn" type="button" aria-label="Close help">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <path d="M12 4L4 12M4 4L12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="help-content">
+                <section class="help-card">
+                    <h3>1. Get an image</h3>
+                    <p>Start ripper from ShareX, press PASTE (Ctrl+V), drop a file on the window or press OPEN. A new image clears the current quads.</p>
+                </section>
+                <section class="help-card">
+                    <h3>2. Mark quads</h3>
+                    <p>Click the four corners of a flat surface: top-left first, then around it. Drag any corner to adjust. Click a quad or its row to make it active. A red quad crosses itself or is too thin and will not export.</p>
+                </section>
+                <section class="help-card">
+                    <h3>3. Size</h3>
+                    <p>EDGES sizes the texture from the quad's edges. A locked ratio keeps that width and sets the height. Power of two snaps both sides to 256, 512, 1024 and so on.</p>
+                </section>
+                <section class="help-card">
+                    <h3>4. Output</h3>
+                    <p>SEND ACTIVE puts the active quad on the clipboard, into the enabled folders and, from ShareX, back into ShareX, then closes. SAVE ALL writes every quad to the folders. Existing files are never overwritten.</p>
+                </section>
+                <section class="help-card">
+                    <h3>5. ShareX setup</h3>
+                    <p>Task settings, Actions, Add: point to ripper.exe, arguments "$input" "$output", output extension tex.png (a plain png would overwrite the original capture). In After capture tasks enable Save image to file and Perform actions. ShareX waits while ripper is open, so finish or press Esc before the next capture.</p>
+                </section>
+                <section class="help-card">
+                    <h3>Shortcuts</h3>
+                    <dl class="keys">
+                        <dt>Enter</dt><dd>Send the active quad</dd>
+                        <dt>Ctrl+S</dt><dd>Save all quads</dd>
+                        <dt>Ctrl+V</dt><dd>Paste an image</dd>
+                        <dt>Esc</dt><dd>Cancel the unfinished quad, otherwise close</dd>
+                        <dt>Delete</dt><dd>Remove the active quad</dd>
+                        <dt>Tab</dt><dd>Next quad</dd>
+                        <dt>Wheel</dt><dd>Zoom at the cursor</dd>
+                        <dt>Space+drag</dt><dd>Pan (or middle mouse drag)</dd>
+                        <dt>F</dt><dd>Fit the image to the view</dd>
+                    </dl>
+                </section>
+            </div>
+            <div class="help-foot">
+                <button id="helpCloseBottom" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./js/main.js"></script>
+</body>
+</html>
