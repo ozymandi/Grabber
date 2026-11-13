@@ -79,10 +79,12 @@ function onKey(e) {
     }
     if (isTyping(e)) return;
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key.toLowerCase() === 'v') {
+    // Letter shortcuts use the physical key (e.code), so they work in any keyboard
+    // layout: in Ukrainian, V/S/F type "м"/"і"/"а" and e.key never matches.
+    if (ctrl && e.code === 'KeyV') {
         e.preventDefault();
         paste();
-    } else if (ctrl && e.key.toLowerCase() === 's') {
+    } else if (ctrl && e.code === 'KeyS') {
         e.preventDefault();
         if (!e.repeat) saveAll();
     } else if (e.key === 'Enter' && !ctrl && !e.altKey) {
@@ -102,7 +104,7 @@ function onKey(e) {
             const step = e.shiftKey ? -1 : 1;
             setActive((state.active + step + state.quads.length) % state.quads.length);
         }
-    } else if (e.key === 'f' || e.key === 'F') {
+    } else if (e.code === 'KeyF') {
         if (!ctrl) editor.fit();
     }
 }
