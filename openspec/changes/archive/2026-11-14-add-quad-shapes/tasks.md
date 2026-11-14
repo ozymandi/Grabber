@@ -63,8 +63,8 @@
   - the Atlas output into a test workspace, exported with EXTEND.
 
   Verify the masks pixel by pixel against `outline`, that the transparent corners fill under EXTEND (spec "Atlas tile with EXTEND"), and that a Rect output is byte-identical to 2.2.0's.
-- [ ] 5.2 Bump `src-tauri/Cargo.toml` to 2.3.0 and run `scripts/release.ps1 -DryRun`. Publish only after the designer's explicit yes, then update this machine through the button. Verify with the release URL and the installed version.
-- [ ] 5.3 Update `task.md` (status, next step) and the project memory. Verify that both name the 2.3.0 release.
+- [x] 5.2 Bump `src-tauri/Cargo.toml` to 2.3.0 and run `scripts/release.ps1 -DryRun`. Publish only after the designer's explicit yes, then update this machine through the button. Verify with the release URL and the installed version.
+- [x] 5.3 Update `task.md` (status, next step) and the project memory. Verify that both name the 2.3.0 release.
 
 ## Workflow follow-up
 
