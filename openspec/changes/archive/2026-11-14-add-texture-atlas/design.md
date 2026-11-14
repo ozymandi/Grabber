@@ -120,7 +120,7 @@ The output starts fully transparent.
 
 ### D6. ATLAS UI
 
-- **Mode switch.** A `seg-row` RIP | ATLAS at the top of the side panel, using the O'Tool segmented control. Each mode owns a stage element: the existing `#stage` for RIP, a new `#atlasStage` for ATLAS. Switching hides one and shows the other, so the RIP image and quads stay intact.
+- **Mode switch.** A `seg-row` RIP | ATLAS (O'Tool segmented control, no card) at the bottom-left of the canvas area, 8 px from its edges and 304 px wide, as the designer placed it. Each mode owns a stage element: the existing `#stage` for RIP, a new `#atlasStage` for ATLAS. Switching hides one and shows the other, so the RIP image and quads stay intact.
 - **ATLAS panels:**
   - **Workspace:** name with an unsaved dot; NEW, OPEN, SAVE, SAVE AS; sector size select, disabled when there are tiles; padding.
   - **Sector:** the selected sector's UDIM number; REMOVE, disabled with a reason.

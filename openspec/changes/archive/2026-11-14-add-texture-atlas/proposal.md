@@ -8,7 +8,7 @@ This change is the 2.0.0 core. Fine work comes as 2.1.0: UV-layout guides, free 
 
 ## What Changes
 
-- **Two modes in one window:** RIP, which is today's editor, and ATLAS, the new atlas editor. A RIP | ATLAS segmented switch sits at the top of the side panel. A ShareX launch always opens in RIP.
+- **Two modes in one window:** RIP, which is today's editor, and ATLAS, the new atlas editor. A RIP | ATLAS segmented switch sits at the bottom-left of the canvas area. A ShareX launch always opens in RIP.
 - **Workspace document.**
   - A workspace is an infinite canvas holding sectors and tiles. It is saved as a single `.ripper` file.
   - The current workspace is the one opened last, and new tiles go there. NEW starts an untitled workspace, OPEN loads a `.ripper`, SAVE and SAVE AS write the file.

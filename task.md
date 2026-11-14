@@ -32,7 +32,7 @@
   - `config.toml` цілий.
 - Після оновлення захоплення Ctrl+Shift+F11 з Enter дає `*.tex.png`, оригінал цілий.
 - Наступний крок:
-  - `/opsx:archive add-texture-atlas`;
+  - ~~`/opsx:archive add-texture-atlas`~~ — заархівовано 2026-11-14 в `openspec/changes/archive/2026-11-14-add-texture-atlas/`; основні специфікації `atlas-workspace`, `atlas-tiles`, `atlas-export` створено, `texture-export` оновлено;
   - 2.1.0 — UV-розгортка як напрямна, вільний поворот, продовження країв при експорті.
 - 1.0.0: https://github.com/ozymandi/Grabber/releases/tag/v1.0.0, коміт `4925aca`. Встановлюється інсталятором у `%LOCALAPPDATA%\ripper`; далі програма оновлюється сама.
 - Деталі — у розділі «Наступний крок».

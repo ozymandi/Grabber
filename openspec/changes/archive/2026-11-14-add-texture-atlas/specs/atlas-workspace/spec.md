@@ -7,7 +7,7 @@ Defines the atlas document: an infinite canvas of equal power-of-two sectors arr
 ## ADDED Requirements
 
 ### Requirement: RIP and ATLAS modes
-The window SHALL have two modes, RIP and ATLAS. A RIP | ATLAS segmented switch at the top of the side panel selects the mode. Each mode shows its own canvas and panels, and the status row and help stay shared. A ShareX launch SHALL always open in RIP mode.
+The window SHALL have two modes, RIP and ATLAS. A RIP | ATLAS segmented switch at the bottom-left of the canvas area selects the mode in both modes. Each mode shows its own canvas and panels, and the status row and help stay shared. A ShareX launch SHALL always open in RIP mode.
 
 #### Scenario: Switch to ATLAS
 - **WHEN** the user clicks ATLAS while editing quads
