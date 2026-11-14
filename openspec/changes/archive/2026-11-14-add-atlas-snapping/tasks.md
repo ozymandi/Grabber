@@ -38,8 +38,8 @@
   - select a packed row by frame (change `add-atlas-marquee`, released together in 2.2.0) and move it with snapping.
 
   Run it after `add-atlas-marquee` group 2 is done. Verify that the exported gaps equal the padding exactly, at 60 fps while dragging, and that the designer's own workspace is untouched.
-- [ ] 3.2 Bump `src-tauri/Cargo.toml` to 2.2.0, run `scripts/release.ps1 -DryRun`, and publish only after the designer's explicit yes. Then update this machine through the button. Verify with the release URL and the installed version.
-- [ ] 3.3 Update `task.md` (status, next step) and the project memory. Verify that both name the 2.2.0 release.
+- [x] 3.2 Bump `src-tauri/Cargo.toml` to 2.2.0, run `scripts/release.ps1 -DryRun`, and publish only after the designer's explicit yes. Then update this machine through the button. Verify with the release URL and the installed version.
+- [x] 3.3 Update `task.md` (status, next step) and the project memory. Verify that both name the 2.2.0 release.
 
 ## Workflow follow-up
 
