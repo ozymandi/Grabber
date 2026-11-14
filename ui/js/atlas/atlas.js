@@ -4,6 +4,7 @@
 import { setStatus } from '../status.js';
 import { AtlasCanvas, sectorRect } from './canvas.js';
 import * as F from './frame.js';
+import { setNameField } from '../name-field.js';
 
 const el = (id) => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
@@ -79,8 +80,21 @@ function udimOf(sector) {
 function render() {
     if (!doc) return;
     const m = doc.manifest;
-    el('atlasName').value = m.name;
-    el('atlasName').title = doc.file ?? 'Not saved yet';
+    setNameField(el('atlasName'), {
+        value: m.name,
+        editable: !doc.file,
+        file: doc.file,
+        commit: async (name) => {
+            try {
+                setDoc(await invoke('atlas_rename', { name }));
+                setStatus(`Workspace named ${name}`, 'success');
+                return true;
+            } catch (e) {
+                setStatus(errText(e), 'error');
+                return false;
+            }
+        },
+    });
     el('atlasUnsaved').hidden = !doc.unsaved;
     const locked = m.tiles.length > 0;
     for (const b of el('atlasSizeSeg').querySelectorAll('.seg')) {

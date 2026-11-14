@@ -486,6 +486,7 @@ fn main() {
             update::install_update,
             atlas_cmd::atlas_get,
             atlas_cmd::atlas_name,
+            atlas_cmd::atlas_rename,
             atlas_cmd::atlas_revision,
             atlas_cmd::atlas_new,
             atlas_cmd::atlas_open,

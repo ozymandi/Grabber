@@ -28,6 +28,17 @@ A workspace SHALL be saved as a single `.ripper` file. The file holds the sector
 - **WHEN** a workspace with guides on sectors 1001 and 1002 is saved as `cafe.ripper` and opened on another machine
 - **THEN** both guides appear on the same sectors
 
+### Requirement: Workspace name
+An unsaved workspace SHALL be nameable in the Atlas slot of the RIP Output panel and in the Workspace panel of ATLAS mode; Enter or leaving the field commits, Esc reverts. The name SHALL be the default file name on SAVE and the default export name. Names that are empty, longer than 100 characters, contain `< > : " / \ | ? *` or end with a dot SHALL be refused with an explanation. A saved workspace SHALL be named after its file: both fields are read-only, and renaming is SAVE AS.
+
+#### Scenario: Name before the first save
+- **WHEN** the user types `cafe facades` into the Atlas field of an untitled workspace and presses Enter
+- **THEN** the workspace is named `cafe facades`, and SAVE suggests `cafe facades.ripper`
+
+#### Scenario: Saved workspace
+- **WHEN** the workspace has been saved as `cafe.ripper`
+- **THEN** both name fields show `cafe`, cannot be edited, and their tooltip says to use SAVE AS
+
 ### Requirement: Current workspace
 The current workspace SHALL be the one created or opened last. It SHALL be remembered across launches, including ShareX launches. New tiles SHALL always go to the current workspace. NEW SHALL make an empty untitled workspace current.
 

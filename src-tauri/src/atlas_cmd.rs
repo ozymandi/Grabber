@@ -42,11 +42,38 @@ pub async fn atlas_get(state: State<'_, AppState>) -> Result<Doc, String> {
     state.store.doc(&ws).map_err(err)
 }
 
+#[derive(serde::Serialize)]
+pub struct AtlasName {
+    /// None when there is no current workspace yet.
+    pub name: Option<String>,
+    /// The `.ripper` file, if the workspace was saved; its name then follows the file.
+    pub file: Option<String>,
+}
+
 /// Name of the current workspace for the RIP Output panel, without creating one.
 #[tauri::command]
-pub fn atlas_name(state: State<'_, AppState>) -> Option<String> {
+pub fn atlas_name(state: State<'_, AppState>) -> AtlasName {
     let id = state.settings.lock().unwrap().current_workspace.clone();
-    state.store.existing(&id).and_then(|ws| ws.read().ok()).map(|m| m.name)
+    match state.store.existing(&id) {
+        Some(ws) => AtlasName { name: ws.read().ok().map(|m| m.name), file: state.store.entry(&ws.id).file },
+        None => AtlasName { name: None, file: None },
+    }
+}
+
+/// Names an unsaved workspace (2.1.2). A saved workspace is named after its file, so it is
+/// renamed with SAVE AS instead.
+#[tauri::command]
+pub async fn atlas_rename(name: String, state: State<'_, AppState>) -> Result<Doc, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    if state.store.entry(&ws.id).file.is_some() {
+        return Err("A saved workspace is named after its file; use SAVE AS in ATLAS to rename it".into());
+    }
+    let w = ws.clone();
+    async_runtime::spawn_blocking(move || w.mutate(|m| m.rename(&name)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
+    state.store.doc(&ws).map_err(err)
 }
 
 /// Revision of the current workspace, polled by the open atlas view.

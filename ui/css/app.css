@@ -391,7 +391,9 @@
 
 .unsaved-dot[hidden] { display: none; }
 
-#atlasName, #atlasTarget { cursor: default; text-overflow: ellipsis; }
+#atlasName, #atlasTarget { text-overflow: ellipsis; }
+/* A saved workspace's name follows its file: plain text, no focus, no selection (2.1.2). */
+#atlasName.name-locked, #atlasTarget.name-locked { cursor: default; user-select: none; }
 
 /* RIP | ATLAS switch: two segment buttons at the bottom-left of the canvas area, no card;
    8 px from the edges and 304 px wide, like the cards on the right. */

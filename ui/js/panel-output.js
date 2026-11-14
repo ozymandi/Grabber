@@ -3,6 +3,7 @@
 
 import { saveSettings, settings } from './settings.js';
 import { setStatus } from './status.js';
+import { setNameField } from './name-field.js';
 
 const SLOTS = [
     { on: 'localOn', dir: 'localDir', browse: 'localBrowse', onKey: 'local_on', dirKey: 'local_dir', title: 'Choose the local output folder' },
@@ -11,10 +12,28 @@ const SLOTS = [
 
 const el = (id) => document.getElementById(id);
 
-/** Shows the current workspace name in the Atlas slot (it is chosen in ATLAS mode). */
+/**
+ * Shows the current workspace name in the Atlas slot. An unsaved workspace can be named here;
+ * a saved one is named after its file (2.1.2).
+ */
 export async function refreshAtlasTarget() {
-    const name = await window.__TAURI__.core.invoke('atlas_name').catch(() => null);
-    el('atlasTarget').value = name ?? 'Untitled';
+    const info = await window.__TAURI__.core.invoke('atlas_name').catch(() => ({ name: null, file: null }));
+    setNameField(el('atlasTarget'), {
+        value: info.name ?? 'Untitled',
+        editable: !info.file,
+        file: info.file,
+        commit: async (name) => {
+            try {
+                await window.__TAURI__.core.invoke('atlas_rename', { name });
+                setStatus(`Atlas workspace named ${name}`, 'success');
+                await refreshAtlasTarget();
+                return true;
+            } catch (e) {
+                setStatus(String(e).replace(/^Error: /, ''), 'error');
+                return false;
+            }
+        },
+    });
 }
 
 export function renderOutput() {

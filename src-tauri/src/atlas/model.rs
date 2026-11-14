@@ -307,6 +307,8 @@ pub struct Manifest {
 }
 
 pub const DEFAULT_OPACITY: u8 = 50;
+/// Longest workspace name, in characters.
+pub const MAX_NAME: usize = 100;
 pub const DEFAULT_EDGE: u32 = 16;
 
 fn default_true() -> bool {
@@ -590,6 +592,23 @@ impl Manifest {
             }
         }
         Ok(rep)
+    }
+
+    /// Names the workspace (2.1.2). The name becomes the default file name on SAVE and the
+    /// default export name, so it must be usable in a Windows file name.
+    pub fn rename(&mut self, name: &str) -> Result<(), Refused> {
+        let name = name.trim();
+        if name.is_empty() {
+            return refuse("Enter a name for the workspace");
+        }
+        if name.chars().count() > MAX_NAME {
+            return refuse(format!("A workspace name can be at most {MAX_NAME} characters"));
+        }
+        if name.chars().any(|c| c.is_control() || r#"<>:"/\|?*"#.contains(c)) || name.ends_with('.') {
+            return refuse(r#"A workspace name cannot contain < > : " / \ | ? * or end with a dot"#);
+        }
+        self.name = name.to_string();
+        Ok(())
     }
 
     /// Guide visibility for the whole workspace; opacity in percent.
@@ -1080,6 +1099,17 @@ mod tests {
         load(&mut m, &[("body.1002.png", 8, 8)], None).unwrap();
         m.remove_sector(s(1, 0)).unwrap();
         assert!(m.guides.is_empty());
+    }
+
+    #[test]
+    fn rename_checks_the_name() {
+        let mut m = Manifest::default();
+        m.rename("  cafe facades ").unwrap();
+        assert_eq!(m.name, "cafe facades");
+        for bad in ["", "   ", "a/b", "a:b", "what?", "dot.", &"x".repeat(101)] {
+            assert!(m.rename(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(m.name, "cafe facades", "a refused name changes nothing");
     }
 
     #[test]
