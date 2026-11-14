@@ -22,7 +22,14 @@
 - Дві папки виводу (локальна і Google Drive на `G:\`), кожну можна вимкнути. Файли не перезаписуються.
 - Пропорції: за сторонами, фіксування (1:1, 4:3, 2:1, CUSTOM), степінь двійки.
 
-## Поточний статус (2026-11-13)
+## Поточний статус (2026-11-14)
+
+**Випущено ripper 1.0.0.**
+- Реліз: https://github.com/ozymandi/Grabber/releases/tag/v1.0.0, коміт `4925aca`.
+- Встановлено інсталятором у `%LOCALAPPDATA%\ripper`; далі програма оновлюється сама.
+- Деталі — у розділі «Наступний крок».
+
+### 0.1.0 (2026-11-13)
 
 Реалізація: **37 з 37 задач**. Код у GitHub: https://github.com/ozymandi/Grabber (гілка `main`, коміт `630be51`).
 
@@ -36,9 +43,11 @@ OpenSpec: зміна заархівована в `openspec/changes/archive/2026-
 ### ShareX (налаштовано 2026-11-13)
 
 - Окрема клавіша **Ctrl+Shift+F11**: захоплення області, далі ripper, без завантаження на хостинг. Ctrl+Shift+F12 і решта не змінені.
-- Action: `%LOCALAPPDATA%\Programs\ripper\ripper.exe` (копія release, щоб нові збірки не чіпали те, що запускає ShareX), аргументи `"$input" "$output"`, Output extension **`tex.png`**. З `png` ShareX передав би той самий файл, що й `$input`, і оригінал був би перезаписаний.
+- Action: з 2026-11-14 — `%LOCALAPPDATA%\ripper\ripper.exe` (встановлена 1.0.0; до цього — ручна копія в `Programs\ripper`, видалена). Аргументи `"$input" "$output"`, Output extension **`tex.png`**. З `png` ShareX передав би той самий файл, що й `$input`, і оригінал був би перезаписаний.
 - Інструкція з встановлення й підключення до ShareX англійською: `README.md`. Підписи звірені з ресурсами інтерфейсу ShareX 22.4.0.
-- Резервні копії старого конфігу: `C:\Users\ozyma\OneDrive\Documents\ShareX\*.json.before-ripper`.
+- Резервні копії старого конфігу в `C:\Users\ozyma\OneDrive\Documents\ShareX\`:
+  - `*.json.before-ripper` — до ripper;
+  - `HotkeysConfig.json.before-1.0.0` — до переходу на 1.0.0.
 - Перевірено зі справжнім ShareX:
   - Enter — ShareX продовжує з `*.tex.png`, оригінал лишається;
   - Esc — ShareX продовжує з оригіналом;
@@ -52,7 +61,7 @@ OpenSpec: зміна заархівована в `openspec/changes/archive/2026-
   - пропорції;
   - відправка, збереження, вихід;
   - режим ShareX: код виходу 0, Esc без файлу, недоступна папка Drive.
-- Release-збірка: `src-tauri/target/release/ripper.exe` (10,1 МБ, портативна).
+- Release-збірка: `C:\cargo-target\release\ripper.exe` (10,1 МБ, портативна; target винесено з `E:\Projects` через Google Drive).
 
 ### Заміри (Ryzen 9 9950X)
 
@@ -82,7 +91,16 @@ OpenSpec: зміна заархівована в `openspec/changes/archive/2026-
 
 Обговорено в `/opsx:explore` 2026-11-14. Буде дві окремі OpenSpec-зміни:
 1. `add-installer-updater` — версія **1.0.0**. Зміну оформлено 2026-11-14: `openspec/changes/add-installer-updater/` (proposal, spec `app-distribution`, design, 22 задачі в 6 групах; проходить `validate --strict`).
-   - **Реалізація (2026-11-14): 18 з 22 задач.** Нічого не закомічено.
+   - **Реалізація (2026-11-14): 22 з 22 задач.** Коміти `a08fe75`, `4925aca`.
+     - Реліз `v1.0.0` опубліковано: setup, `.sig`, `latest.json`.
+     - Перехід на цій машині:
+       - 1.0.0 встановлено з релізу;
+       - у ShareX змінено шлях дії;
+       - Ctrl+Shift+F11 перевірено: двічі Enter дає `*.tex.png` і цілий оригінал, Esc не створює файлу;
+       - стару копію `Programs\ripper` видалено.
+     - Встановлена 1.0.0 проти справжнього GitHub кнопку оновлення не показує (вона найновіша).
+     - Наступне по цій зміні: `/opsx:archive add-installer-updater`.
+     - Сценарій «Install update» на справжньому GitHub уперше пройде з релізом 2.0.0.
      - Готово:
        - updater на Rust (`update.rs`, `update_policy.rs`; 54 тести);
        - позначка незбережених квадів;
@@ -112,8 +130,12 @@ OpenSpec: зміна заархівована в `openspec/changes/archive/2026-
      - `#fff` замінено на `currentColor`;
      - класи перенесено в атрибути.
    - Геометрію і штрих 46/1024 лишено. Це 0,72 px при 16 px, тонше за «?» з її 1,5 px.
-   - Чекає на дизайнера: 6.1 — «так» на публікацію `v1.0.0`.
-   - Після публікації: 6.2 — перехід ShareX на `%LOCALAPPDATA%\ripper\ripper.exe`; 6.3; 6.4.
+   - Як випускати наступні версії:
+     1. підняти `version` у `src-tauri/Cargo.toml`;
+     2. закомітити й запушити;
+     3. запустити `scripts\release.ps1` (`-DryRun` для перевірки).
+
+     Ключ: `%USERPROFILE%\.tauri\ripper.key` і змінні `TAURI_SIGNING_PRIVATE_KEY` та `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 2. `add-texture-atlas` — версія **2.0.0**, прийде як перше оновлення. Питання нижче ще відкриті.
 
 ### 1.0.0: інсталятор і оновлення — вирішено

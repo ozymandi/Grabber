@@ -108,15 +108,15 @@
 
 ## 6. Release 1.0.0 and migration
 
-- [ ] 6.1 Run `scripts/release.ps1` for 1.0.0. Ask the designer for a yes before the publish step, because it is public. Verify that `https://github.com/ozymandi/Grabber/releases/latest/download/latest.json` downloads and names 1.0.0, and that the setup URL in it downloads.
-- [ ] 6.2 Migrate this machine (design: Migration Plan):
+- [x] 6.1 Run `scripts/release.ps1` for 1.0.0. Ask the designer for a yes before the publish step, because it is public. Verify that `https://github.com/ozymandi/Grabber/releases/latest/download/latest.json` downloads and names 1.0.0, and that the setup URL in it downloads.
+- [x] 6.2 Migrate this machine (design: Migration Plan):
   1. install 1.0.0 from the release;
   2. back up `HotkeysConfig.json` as `*.before-1.0.0`;
   3. stop ShareX, repoint the ripper action to `%LOCALAPPDATA%\ripper\ripper.exe`, and restart ShareX with `-silent`.
 
   Verify Ctrl+Shift+F11 end to end: Enter writes `*.tex.png` and the original stays, Esc leaves the original. Only then delete `%LOCALAPPDATA%\Programs\ripper`.
-- [ ] 6.3 Start the installed 1.0.0 standalone against the real endpoint. Verify that no update button appears (spec "Up to date").
-- [ ] 6.4 Update `task.md` (status, timings, SmartScreen result, next step: atlas 2.0.0) and the project memory (install path, release process, ShareX path). Verify that both name the new path and the release script.
+- [x] 6.3 Start the installed 1.0.0 standalone against the real endpoint. Verify that no update button appears (spec "Up to date").
+- [x] 6.4 Update `task.md` (status, timings, SmartScreen result, next step: atlas 2.0.0) and the project memory (install path, release process, ShareX path). Verify that both name the new path and the release script.
 
 ## Workflow follow-up
 
