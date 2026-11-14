@@ -2,6 +2,8 @@
 //! overwriting, and report every failure without blocking the other outputs.
 
 use crate::geom::{self, Aspect, Invalid, Pt};
+use crate::mask;
+use crate::shape::{self, Shape};
 use crate::settings::Folder;
 use crate::source::Source;
 use crate::warp::{self, Rgba};
@@ -15,6 +17,9 @@ pub struct QuadReq {
     pub corners: [Pt; 4],
     pub aspect: Aspect,
     pub pot: bool,
+    /// The mask on the quad's plane; Rectangle when the UI sends none (add-quad-shapes D1).
+    #[serde(default)]
+    pub shape: Shape,
     /// 1-based number shown in the Quads panel, used in the file name.
     pub number: u32,
 }
@@ -32,7 +37,14 @@ pub fn render(src: &Source, q: &QuadReq) -> Result<Rendered, Invalid> {
     geom::validate(&cw)?;
     let (w, h) = geom::output_size(&cw, q.aspect, q.pot);
     let img = Rgba { w: src.w, h: src.h, data: &src.rgba };
-    let rgba = warp::warp(&img, &cw, w, h).ok_or(Invalid::NotConvex)?;
+    if shape::is_empty(&q.shape, w, h) {
+        return Err(Invalid::EmptyShape);
+    }
+    let mut rgba = warp::warp(&img, &cw, w, h).ok_or(Invalid::NotConvex)?;
+    // A rectangle keeps the warp untouched, byte for byte (design D3).
+    if q.shape != Shape::Rect {
+        mask::apply(&mut rgba, w, h, &shape::outline(&q.shape, w as f64, h as f64));
+    }
     Ok(Rendered { w, h, rgba })
 }
 
@@ -136,7 +148,65 @@ mod tests {
     }
 
     fn quad(corners: [Pt; 4], number: u32) -> QuadReq {
-        QuadReq { corners, aspect: Aspect::Edges, pot: false, number }
+        QuadReq { corners, aspect: Aspect::Edges, pot: false, shape: Shape::Rect, number }
+    }
+
+    /// A gradient source, so a changed sampler or mask would show in the bytes.
+    fn gradient_source(w: u32, h: u32) -> Source {
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                rgba.extend_from_slice(&[(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8, 255]);
+            }
+        }
+        Source { w, h, rgba, stem: "grad".into() }
+    }
+
+    const SKEW: [Pt; 4] = [[40.5, 30.25], [610.0, 70.0], [580.0, 450.0], [20.0, 500.0]];
+
+    #[test]
+    fn rect_is_byte_identical_to_the_plain_warp() {
+        // Spec "Rectangle is unchanged": before add-quad-shapes, render was exactly this warp.
+        let src = gradient_source(640, 520);
+        let r = render(&src, &quad(SKEW, 1)).unwrap();
+        let cw = geom::clockwise(&SKEW);
+        let (w, h) = geom::output_size(&cw, Aspect::Edges, false);
+        let img = Rgba { w: src.w, h: src.h, data: &src.rgba };
+        assert_eq!((r.w, r.h), (w, h));
+        assert!(r.rgba == warp::warp(&img, &cw, w, h).unwrap());
+    }
+
+    #[test]
+    fn circle_on_a_square_output() {
+        // Spec "Circle on a square output": 512 x 512, opaque inside r 256, clear corners.
+        let src = solid_source(600, 600);
+        let mut q = quad([[0.0, 0.0], [512.0, 0.0], [512.0, 512.0], [0.0, 512.0]], 1);
+        q.shape = Shape::Circle;
+        let r = render(&src, &q).unwrap();
+        assert_eq!((r.w, r.h), (512, 512));
+        let a = |x: u32, y: u32| r.rgba[((y * 512 + x) * 4 + 3) as usize];
+        assert_eq!(a(256, 256), 255);
+        assert_eq!(a(256, 2), 255, "just inside the top");
+        assert_eq!(a(0, 0), 0);
+        assert_eq!(a(511, 511), 0);
+        assert_eq!(a(60, 60), 0, "outside the circle near a corner (278 px from the centre)");
+        assert!((0..512).any(|x| a(x, 0) > 0 && a(x, 0) < 255), "soft edge along the top row");
+    }
+
+    #[test]
+    fn empty_shape_is_rejected() {
+        let src = solid_source(100, 100);
+        let mut q = quad([[0.0, 0.0], [90.0, 0.0], [90.0, 90.0], [0.0, 90.0]], 1);
+        q.shape = Shape::Path { nodes: vec![shape::Node::corner([0.2, 0.2]), shape::Node::corner([0.8, 0.8])] };
+        assert_eq!(render(&src, &q).err(), Some(Invalid::EmptyShape));
+    }
+
+    #[test]
+    fn old_request_without_shape_is_a_rectangle() {
+        let q: QuadReq = serde_json::from_str(r#"{"corners":[[0,0],[10,0],[10,10],[0,10]],"aspect":{"mode":"edges"},"pot":false,"number":1}"#).unwrap();
+        assert_eq!(q.shape, Shape::Rect);
+        let q: QuadReq = serde_json::from_str(r#"{"corners":[[0,0],[10,0],[10,10],[0,10]],"aspect":{"mode":"edges"},"pot":false,"shape":{"kind":"ngon","n":8},"number":1}"#).unwrap();
+        assert_eq!(q.shape, Shape::Ngon { n: 8 });
     }
 
     #[test]

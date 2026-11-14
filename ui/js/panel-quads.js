@@ -12,6 +12,7 @@ const REASONS = {
     too_small: 'Quad is too small',
     collinear: 'Three corners are nearly in a line',
     not_finite: 'Invalid coordinates',
+    empty_shape: 'The shape has no area',
 };
 
 export const invalidReason = (code) => REASONS[code] ?? code;

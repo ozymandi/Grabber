@@ -182,6 +182,8 @@
     display: block;
 }
 
+/* Pen cursor (add-quad-shapes): set by the editor; panning and corners take over. */
+.stage.pen-cursor { cursor: var(--pen-cursor); }
 .stage.is-panning { cursor: grabbing; }
 .stage.can-pan { cursor: grab; }
 .stage.over-handle { cursor: move; }
@@ -405,4 +407,35 @@
     bottom: 8px;
     width: 304px;
     z-index: 2;
+}
+
+/* Quad shape picker (add-quad-shapes D9): an icon button beside the Quads title opening a
+   list styled as O'Tool's .custom-options dropdown. */
+.panel-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.shape-pick { position: relative; }
+.shape-pick .icon-btn { width: 20px; min-width: 20px; height: 20px; min-height: 20px; }
+.shape-pick .icon-btn svg { width: 14px; height: 14px; }
+.shape-menu {
+    right: auto;
+    width: 168px;
+}
+.shape-pick.open .shape-menu { display: block; }
+.shape-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.shape-option svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.shape-option .shape-name { flex: 1 1 auto; }
+.shape-option input[type="number"] {
+    width: 40px;
+    height: 20px;
+    min-height: 20px;
+    text-align: center;
+    padding: 0 4px;
 }

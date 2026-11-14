@@ -2,6 +2,7 @@
 // pixel through the same homography Rust uses for export (geom.js, checked against geom.rs).
 
 import * as geom from './geom.js';
+import { outline } from './shape.js';
 import { activeQuad, quadInfo, state } from './state.js';
 import { program, uploadTexture } from './view.js';
 
@@ -21,13 +22,17 @@ in vec2 v_out;
 uniform mat3 u_h;    // output px -> source px
 uniform vec2 u_img;  // source size
 uniform sampler2D u_tex;
+uniform sampler2D u_mask; // shape coverage over the output (add-quad-shapes D4)
+uniform vec2 u_size;
+uniform bool u_masked;
 out vec4 o;
 void main() {
     vec3 p = u_h * vec3(v_out, 1.0);
     vec2 s = p.xy / p.z;
     if (s.x < 0.0 || s.y < 0.0 || s.x > u_img.x || s.y > u_img.y) { o = vec4(0.0); return; }
     vec4 c = texture(u_tex, s / u_img);
-    o = vec4(c.rgb * c.a, c.a);
+    float a = c.a * (u_masked ? texture(u_mask, v_out / u_size).a : 1.0);
+    o = vec4(c.rgb * a, a);
 }`;
 
 export class Preview {
@@ -48,8 +53,17 @@ export class Preview {
         const loc = gl.getAttribLocation(this.prog, 'a_pos');
         gl.enableVertexAttribArray(loc);
         gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-        this.u = Object.fromEntries(['u_h', 'u_img', 'u_size', 'u_tex'].map((n) => [n, gl.getUniformLocation(this.prog, n)]));
+        this.u = Object.fromEntries(['u_h', 'u_img', 'u_size', 'u_tex', 'u_mask', 'u_masked'].map((n) => [n, gl.getUniformLocation(this.prog, n)]));
         this.tex = null;
+        // Shape mask: drawn by Canvas2D at the preview's pixel size and uploaded only when
+        // the shape or that size changes, so corner drags cost what they did (design D4).
+        this.maskCanvas = document.createElement('canvas');
+        this.maskTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
+        for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) {
+            gl.texParameteri(gl.TEXTURE_2D, k, v);
+        }
+        this.maskKey = '';
         this.frame = 0;
         new ResizeObserver(() => this.request()).observe(this.box);
     }
@@ -122,6 +136,36 @@ export class Preview {
         gl.uniform2f(this.u.u_img, state.source.w, state.source.h);
         gl.uniform2f(this.u.u_size, info.w, info.h);
         gl.uniform1i(this.u.u_tex, 0);
+        const masked = q.shape.kind !== 'rect';
+        if (masked) this.updateMask(q.shape, this.canvas.width, this.canvas.height);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
+        gl.uniform1i(this.u.u_mask, 1);
+        gl.uniform1i(this.u.u_masked, masked ? 1 : 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    /** Fills the shape's outline into the mask texture at `w x h` when it has changed. */
+    updateMask(shape, w, h) {
+        const key = `${w}x${h}:${JSON.stringify(shape)}`;
+        if (key === this.maskKey) return;
+        this.maskKey = key;
+        const c = this.maskCanvas;
+        c.width = w;
+        c.height = h;
+        const g = c.getContext('2d');
+        g.clearRect(0, 0, w, h);
+        g.beginPath();
+        outline(shape, w, h).forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+        g.closePath();
+        g.fillStyle = '#fff';
+        g.fill('nonzero');
+        const gl = this.gl;
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+        gl.activeTexture(gl.TEXTURE0);
     }
 }

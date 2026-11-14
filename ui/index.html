@@ -35,7 +35,13 @@
 
                 <section class="panel">
                     <div class="panel-head">
-                        <h2>Quads</h2>
+                        <div class="panel-title">
+                            <h2>Quads</h2>
+                            <div class="shape-pick" id="shapePick">
+                                <button id="shapeBtn" class="icon-btn" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+                                <div id="shapeMenu" class="custom-options shape-menu" role="menu"></div>
+                            </div>
+                        </div>
                         <span id="quadCount" class="panel-meta">0</span>
                     </div>
                     <ul id="quadList" class="quad-list"></ul>
@@ -260,7 +266,7 @@
                 </section>
                 <section class="help-card">
                     <h3>2. Mark quads</h3>
-                    <p>Click the four corners of a flat surface: top-left first, then around it. Drag any corner to adjust. Click a quad or its row to make it active. A red quad crosses itself or is too thin and will not export.</p>
+                    <p>Click the four corners of a flat surface: top-left first, then around it. Drag a corner of the active quad to adjust. Click inside a shape or its row to make it active. A red quad crosses itself or is too thin and will not export. The icon beside Quads (or Shift+S) sets the shape cut out of the quad: rectangle, circle, N-gon or a Bezier path; outside it the texture is transparent. Edit a path like Illustrator's Pen: click a segment to add an anchor, click an anchor to remove it, Ctrl+drag to move, Alt+drag to pull out or break handles, Alt+click for a sharp corner; P draws it anew. Ctrl+Z undoes.</p>
                 </section>
                 <section class="help-card">
                     <h3>3. Size</h3>
@@ -284,12 +290,20 @@
                         <dt>Enter</dt><dd>Send the active quad</dd>
                         <dt>Ctrl+S</dt><dd>Save all quads</dd>
                         <dt>Ctrl+V</dt><dd>Paste an image</dd>
-                        <dt>Esc</dt><dd>Cancel the unfinished quad, otherwise close</dd>
+                        <dt>Esc</dt><dd>Cancel the unfinished quad or Pen drawing, otherwise close</dd>
                         <dt>Delete</dt><dd>Remove the active quad</dd>
                         <dt>Tab</dt><dd>Next quad</dd>
                         <dt>Wheel</dt><dd>Zoom at the cursor</dd>
                         <dt>Space+drag</dt><dd>Pan (or middle mouse drag)</dd>
                         <dt>F</dt><dd>Fit the image to the view</dd>
+                        <dt>Shift+S</dt><dd>Next shape: rectangle, circle, N-gon, path</dd>
+                        <dt>Click segment / anchor</dt><dd>Add / remove a path anchor</dd>
+                        <dt>Ctrl+drag</dt><dd>Move a path anchor or handle</dd>
+                        <dt>Alt+drag / Alt+click</dt><dd>Pull out or break handles / sharp corner</dd>
+                        <dt>Shift while dragging</dt><dd>Handles and anchors in 45 degree steps</dd>
+                        <dt>P</dt><dd>Draw the path anew with the Pen</dd>
+                        <dt>Ctrl+Z</dt><dd>Undo a quad edit</dd>
+                        <dt>Ctrl+Shift+Z / Ctrl+Y</dt><dd>Redo</dd>
                     </dl>
                     <dl class="keys">
                         <dt>ATLAS</dt><dd></dd>

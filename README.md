@@ -15,6 +15,7 @@ It works on its own, and it plugs into **ShareX**: capture a region with a hotke
 - Input from ShareX, the clipboard (Ctrl+V), drag and drop, or Open: PNG, JPEG, BMP, WebP.
 - **Atlas** (2.0): every texture you send can also land on an atlas, a grid of square power-of-two sectors in the UDIM layout. Arrange the tiles and export one sector, a sheet, or a numbered set `name.1001.png`, `name.1002.png`...
 - **Fine work** (2.1): UV-layout guides under the tiles, free rotation about a movable pivot, edge fill on export and undo.
+- **Shapes** (2.3): cut a circle, a regular N-gon or a Bezier path out of a quad, with transparency outside; undo in RIP.
 
 ## Requirements
 
@@ -85,19 +86,32 @@ ShareX waits while ripper is open, so finish (Enter) or cancel (Esc) before the 
 1. **Mark a quad:** click the four corners of a flat surface, top-left first, then around it. The first corner becomes the texture's top-left; it is shown with a ring.
 2. **Adjust:** drag any corner. Click a quad, or its row in **Quads**, to make it active. A red quad crosses itself or is too thin, and will not export.
 3. **Size:** pick **EDGES**, **1:1**, **4:3**, **2:1** or **CUSTOM** in **Aspect**. Locked ratios keep the edge-based width and set the height. **Power of two** snaps both sides.
-4. **Export:** press **Enter** (SEND ACTIVE), **Ctrl+S** (SAVE ALL) or **COPY**.
+4. **Shape:** the icon beside **Quads**, or **Shift+S**, sets what is cut out of the active quad. The quad stays the flat plane, and the shape is a mask on it: outside it the texture is transparent. New quads take the last shape.
+   - **Rectangle:** the whole quad, as before.
+   - **Circle:** the ellipse inscribed in the quad. Put the quad's corners on the square around a round sign.
+   - **N-gon:** a regular polygon with 3 to 12 sides that touches all four sides of the quad. 8 fits a STOP sign.
+   - **Path:** a closed Bezier path, edited as with Illustrator's Pen. It starts from the current shape.
+     - Click a segment to add an anchor; click an anchor to remove it.
+     - **Ctrl+drag** moves an anchor or a handle.
+     - **Alt+drag** from an anchor pulls out handles; **Alt+click** makes it a sharp corner again; **Alt+drag** on a handle breaks it from its partner.
+     - **Shift** keeps a drag in 45-degree steps. **P** draws the path anew: click for a sharp anchor, click and drag for a smooth one, click the first anchor to close.
+   - Every shape is outlined with marching ants. The quad's edges and corner handles show only on the active quad.
+5. **Export:** press **Enter** (SEND ACTIVE), **Ctrl+S** (SAVE ALL) or **COPY**. **Ctrl+Z** undoes quad edits; a new image clears the history.
 
 | Key | Action |
 |---|---|
 | Enter | Send the active quad (clipboard, ShareX, folders) |
 | Ctrl+S | Save all quads to the folders |
 | Ctrl+V | Paste an image from the clipboard |
-| Esc | Cancel the unfinished quad; otherwise close without writing |
+| Esc | Cancel the unfinished quad or Pen drawing; otherwise close without writing |
 | Delete | Remove the active quad |
 | Tab / Shift+Tab | Next / previous quad |
 | Mouse wheel | Zoom at the cursor |
 | Space + drag, or middle drag | Pan |
 | F | Fit the image to the window |
+| Shift+S | Next shape: rectangle, circle, N-gon, path |
+| P | Draw the active path anew with the Pen |
+| Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y | Undo / redo a quad edit |
 
 The **?** icon at the bottom right opens the same help inside the app.
 

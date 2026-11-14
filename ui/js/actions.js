@@ -6,7 +6,7 @@ import { invoke } from './source.js';
 import { activeQuad, aspectOf, markSaved, quadInfo, state } from './state.js';
 import { setStatus } from './status.js';
 
-const toReq = (q, i) => ({ corners: q.corners, aspect: aspectOf(q), pot: q.pot, number: i + 1 });
+const toReq = (q, i) => ({ corners: q.corners, aspect: aspectOf(q), pot: q.pot, shape: q.shape, number: i + 1 });
 
 let busy = false;
 

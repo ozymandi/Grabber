@@ -129,6 +129,7 @@ fn invalid_text(r: Invalid) -> &'static str {
         Invalid::NotConvex => "edges cross or the shape is concave",
         Invalid::TooSmall => "too small",
         Invalid::Collinear => "three corners are nearly in a line",
+        Invalid::EmptyShape => "the shape has no area",
     }
 }
 

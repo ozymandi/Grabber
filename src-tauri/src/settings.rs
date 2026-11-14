@@ -16,6 +16,10 @@ pub struct Settings {
     /// Custom ratio terms `[w, h]`.
     pub aspect_custom: [f64; 2],
     pub pot: bool,
+    /// Shape for new quads: "rect", "circle", "ngon" or "path" (add-quad-shapes D9).
+    pub shape: String,
+    /// N for new N-gon quads, 3 to 12.
+    pub ngon: u32,
     /// Last normal (not maximized) window inner size in logical pixels.
     pub window: Option<[u32; 2]>,
     /// The window was maximized when it closed; it opens maximized again.
@@ -36,6 +40,8 @@ impl Default for Settings {
             aspect_mode: "edges".into(),
             aspect_custom: [1.0, 1.0],
             pot: false,
+            shape: "rect".into(),
+            ngon: 8,
             window: None,
             maximized: false,
             atlas_on: false,
@@ -145,6 +151,8 @@ mod tests {
             aspect_mode: "custom".into(),
             aspect_custom: [3.0, 1.0],
             pot: true,
+            shape: "ngon".into(),
+            ngon: 6,
             window: Some([1440, 900]),
             maximized: true,
             atlas_on: true,
@@ -203,6 +211,7 @@ window = [2194, 1211]
         assert_eq!(s.current_workspace, "");
         assert_eq!(s.window, Some([2194, 1211]));
         assert!(!s.maximized, "configs before 2.1.1 open as a normal window");
+        assert_eq!((s.shape.as_str(), s.ngon), ("rect", 8), "configs before 2.3.0 get the shape defaults");
     }
 
     #[test]

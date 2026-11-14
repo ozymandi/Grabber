@@ -4,9 +4,11 @@ import { initHelp, isHelpOpen } from './help.js';
 import { initAspect, renderAspect } from './panel-aspect.js';
 import { initOutput } from './panel-output.js';
 import { renderQuads } from './panel-quads.js';
+import { closeShapeMenu, cycleShape, initShape, renderShape } from './panel-shape.js';
 import { Preview } from './preview.js';
 import { loadSettings, saveDefaults } from './settings.js';
 import { fetchSource, getLaunch, inApp, loadPath, log, pasteClipboard } from './source.js';
+import { redo, undo } from './history.js';
 import { onChange, removeQuad, setActive, setSource, state } from './state.js';
 import { initUpdate, tauriUpdateSource } from './update.js';
 import { atlasKey, atlasKeyUp, initAtlas } from './atlas/atlas.js';
@@ -24,7 +26,11 @@ onChange((what) => {
     if (what !== 'draft') {
         renderQuads();
         renderAspect();
+        renderShape();
         preview.request();
+    }
+    if (what === 'shape' && inApp()) {
+        saveDefaults(state.defaults).then((err) => err && setStatus(err, 'error'));
     }
     if (what === 'draft') {
         const n = state.draft.length;
@@ -90,7 +96,14 @@ function onKey(e) {
     const ctrl = e.ctrlKey || e.metaKey;
     // Letter shortcuts use the physical key (e.code), so they work in any keyboard
     // layout: in Ukrainian, V/S/F type "м"/"і"/"а" and e.key never matches.
-    if (ctrl && e.code === 'KeyV') {
+    if (ctrl && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+        // Undo and redo of quad edits (spec rip-undo), as in ATLAS.
+        e.preventDefault();
+        if (e.repeat) return;
+        if (e.code === 'KeyY' || e.shiftKey) {
+            if (!redo()) setStatus('Nothing to redo');
+        } else if (!undo()) setStatus('Nothing to undo');
+    } else if (ctrl && e.code === 'KeyV') {
         e.preventDefault();
         paste();
     } else if (ctrl && e.code === 'KeyS') {
@@ -99,9 +112,14 @@ function onKey(e) {
     } else if (e.key === 'Enter' && !ctrl && !e.altKey) {
         e.preventDefault();
         if (!e.repeat) sendActive();
+    } else if (!ctrl && e.shiftKey && !e.altKey && e.code === 'KeyS') {
+        e.preventDefault();
+        if (!e.repeat) cycleShape();
     } else if (e.key === 'Escape') {
         e.preventDefault();
-        // Esc cancels an unfinished quad; otherwise it closes without writing anything.
+        // Esc closes the shape menu or cancels an unfinished quad; otherwise it closes the
+        // app without writing anything.
+        if (closeShapeMenu() || editor.cancelPen()) return;
         if (editor.cancelDraft()) sourceStatus();
         else if (inApp()) quit();
     } else if (e.key === 'Delete') {
@@ -113,6 +131,10 @@ function onKey(e) {
             const step = e.shiftKey ? -1 : 1;
             setActive((state.active + step + state.quads.length) % state.quads.length);
         }
+    } else if (e.code === 'KeyP' && !ctrl && !e.altKey) {
+        // P redraws the active Path quad's outline with the Pen (spec "Draw a path with the Pen").
+        e.preventDefault();
+        if (!e.repeat) editor.startPen();
     } else if (e.code === 'KeyF') {
         if (!ctrl) editor.fit();
     }
@@ -120,6 +142,7 @@ function onKey(e) {
 
 function wireUi() {
     initHelp();
+    initShape();
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', (e) => {
         if (e.key === ' ') editor.setSpace(false);

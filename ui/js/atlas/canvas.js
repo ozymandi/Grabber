@@ -8,6 +8,7 @@ import { PLUS_ICON, ROTATE_CURSOR, CROSSHAIR } from '../icons.js';
 import * as F from './frame.js';
 import * as Snap from './snap.js';
 import * as Marquee from './marquee.js';
+import { strokeAnts } from '../ants.js';
 
 const HANDLE = 6; // half size of a corner handle, screen px
 const ROTATE_ZONE = 16; // depth of the rotate zone outside a corner, CSS px
@@ -15,9 +16,6 @@ const PIVOT_HIT = 10; // pivot grab radius, CSS px
 const PIVOT_SNAP = 8; // pivot snap distance, CSS px
 const PIVOT_SIZE = 16; // pivot marker size, CSS px
 const MAGENTA = '#FF00FF'; // guide preview colour (named deviation: not an O'Tool token)
-// Marching ants of the selection frame, as in Photoshop (named deviation: black and white are
-// not O'Tool tokens). Dash length in CSS px; the dashes shift 1 CSS px per step.
-const ANTS = { dash: 4, stepMs: 50, dark: '#000000', light: '#FFFFFF' };
 const SIDES = [
     { side: 'left', du: -1, dv: 0 },
     { side: 'right', du: 1, dv: 0 },
@@ -686,16 +684,9 @@ export class AtlasCanvas {
         const y0 = Math.round(Math.min(a[1], d.last[1])) + 0.5;
         const x1 = Math.round(Math.max(a[0], d.last[0])) + 0.5;
         const y1 = Math.round(Math.max(a[1], d.last[1])) + 0.5;
-        const period = 2 * ANTS.dash;
-        g.lineWidth = dpr;
-        g.strokeStyle = ANTS.light;
-        g.strokeRect(x0, y0, x1 - x0, y1 - y0);
-        g.setLineDash([ANTS.dash * dpr, ANTS.dash * dpr]);
-        g.lineDashOffset = -(Math.floor(performance.now() / ANTS.stepMs) % period) * dpr;
-        g.strokeStyle = ANTS.dark;
-        g.strokeRect(x0, y0, x1 - x0, y1 - y0);
-        g.setLineDash([]);
-        g.lineDashOffset = 0;
+        g.beginPath();
+        g.rect(x0, y0, x1 - x0, y1 - y0);
+        strokeAnts(g, dpr);
         // Keep the ants marching while the frame is up, even when the pointer rests.
         this.request();
     }

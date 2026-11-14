@@ -1,6 +1,7 @@
 // Aspect panel: EDGES / presets / CUSTOM and Power of two for the active quad. The last
 // choice also becomes the default for new quads (persisted with the settings in group 8).
 
+import { endTag, record } from './history.js';
 import { activeQuad, emit, state } from './state.js';
 
 const seg = document.getElementById('aspectSeg');
@@ -25,9 +26,14 @@ export function renderAspect() {
     pot.checked = c.pot;
 }
 
-function update(patch) {
+/** Applies a change to the active quad (one undo step; ratio typing merges by `tag`)
+ *  and to the defaults for new quads. */
+function update(patch, tag = null) {
     const q = activeQuad();
-    if (q) Object.assign(q, patch, { dirty: true });
+    if (q) {
+        record(tag);
+        Object.assign(q, patch, { dirty: true });
+    }
     Object.assign(state.defaults, patch);
     if (patch.custom) state.defaults.custom = { ...patch.custom };
     onDefaultsChanged(state.defaults);
@@ -50,9 +56,12 @@ export function initAspect(changed) {
     for (const input of [ratioW, ratioH]) {
         input.addEventListener('input', () => {
             const r = readRatio();
-            if (r) update({ custom: r });
+            if (r) update({ custom: r }, 'ratio');
         });
-        input.addEventListener('blur', () => renderAspect());
+        input.addEventListener('blur', () => {
+            endTag();
+            renderAspect();
+        });
     }
     pot.addEventListener('change', () => update({ pot: pot.checked }));
     renderAspect();

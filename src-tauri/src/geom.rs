@@ -126,6 +126,8 @@ pub enum Invalid {
     TooSmall,
     /// An interior angle is below [`MIN_ANGLE_DEG`] or above `180 - MIN_ANGLE_DEG`.
     Collinear,
+    /// The quad's shape covers no area (add-quad-shapes D3).
+    EmptyShape,
 }
 
 /// Checks a quad given in clockwise order (see [`clockwise`]).
