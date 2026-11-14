@@ -111,8 +111,8 @@
 
   Record the numbers in `task.md`.
 - [x] 6.3 Add the ATLAS section to README: modes, workspace and files, sectors, tiles, export scopes, UDIM numbering. Verify that every label in the README matches the app.
-- [ ] 6.4 Set `version = "2.0.0"`, commit, push, run `scripts/release.ps1 -DryRun`, then publish once the designer says yes in chat. Verify on this machine that the installed 1.0.0 shows the update button, installs 2.0.0 on click and relaunches as 2.0.0. This is spec app-distribution "Install update" on real GitHub releases. Verify also that ShareX keeps working afterwards.
-- [ ] 6.5 Update `task.md` (status, timings, next step 2.1.0) and the project memory. Verify that both name the 2.0.0 release and the 2.1.0 scope.
+- [x] 6.4 Set `version = "2.0.0"`, commit, push, run `scripts/release.ps1 -DryRun`, then publish once the designer says yes in chat. Verify on this machine that the installed 1.0.0 shows the update button, installs 2.0.0 on click and relaunches as 2.0.0. This is spec app-distribution "Install update" on real GitHub releases. Verify also that ShareX keeps working afterwards.
+- [x] 6.5 Update `task.md` (status, timings, next step 2.1.0) and the project memory. Verify that both name the 2.0.0 release and the 2.1.0 scope.
 
 ## Workflow follow-up
 
