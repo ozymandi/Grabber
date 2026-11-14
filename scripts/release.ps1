@@ -58,7 +58,7 @@ $tag = "v$version"
 if (-not $Notes) { $Notes = "ripper $version" }
 
 $problems = @()
-if (git -C $root status --porcelain) { $problems += 'the working tree has uncommitted changes' }
+if (git -C $root status --porcelain --untracked-files=no) { $problems += 'tracked files have uncommitted changes' }
 git -C $root fetch --quiet origin
 if (-not (git -C $root branch -r --contains HEAD)) { $problems += 'HEAD is not pushed to origin' }
 if (git -C $root tag --list $tag) { $problems += "tag $tag already exists locally" }
