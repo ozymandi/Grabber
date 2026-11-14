@@ -360,6 +360,8 @@
 .atlas-stage.over-tile { cursor: move; }
 .atlas-stage.over-handle-nwse { cursor: nwse-resize; }
 .atlas-stage.over-handle-nesw { cursor: nesw-resize; }
+/* Rotate zone outside a tile corner (add-atlas-fine-work): Lucide rotate-cw, set from icons.js. */
+.atlas-stage.over-rotate { cursor: var(--rotate-cursor); }
 
 /* "+" buttons for adding a sector next to the selected one. */
 .atlas-plus-layer {

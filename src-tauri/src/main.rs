@@ -36,6 +36,9 @@ struct AppState {
     update: Mutex<Option<tauri_plugin_updater::Update>>,
     /// Atlas working folders under %APPDATA%/ripper/workspaces.
     store: Store,
+    /// Items that left the current workspace but this window's undo history can bring back;
+    /// SAVE keeps them on disk (design D6 of add-atlas-fine-work).
+    held: Mutex<std::collections::HashSet<String>>,
 }
 
 #[derive(Serialize)]
@@ -404,6 +407,7 @@ fn main() {
             settings_warning: Mutex::new(settings_warning),
             update: Mutex::new(None),
             store: Store::new(atlas_store::default_root()),
+            held: Mutex::new(std::collections::HashSet::new()),
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -456,6 +460,8 @@ fn main() {
             atlas_cmd::atlas_save,
             atlas_cmd::atlas_save_as,
             atlas_cmd::atlas_edit,
+            atlas_cmd::atlas_apply_steps,
+            atlas_cmd::atlas_load_guides,
             atlas_cmd::atlas_export
         ])
         .run(tauri::generate_context!())

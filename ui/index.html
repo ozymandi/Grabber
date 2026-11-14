@@ -163,6 +163,35 @@
 
                 <section class="panel">
                     <div class="panel-head">
+                        <h2>Guides</h2>
+                        <span id="atlasGuideSector" class="panel-meta"></span>
+                    </div>
+                    <div class="btn-row">
+                        <button id="atlasGuideLoadBtn" class="action-btn" type="button" title="Load UV-layout PNGs: one goes onto the selected sector, a name.1001.png set goes to sectors by number">LOAD...</button>
+                        <button id="atlasGuideRemoveBtn" class="action-btn" type="button" title="Remove the guide of the selected sector" disabled>REMOVE</button>
+                    </div>
+                    <label class="check">
+                        <input id="atlasGuideShow" type="checkbox" checked>
+                        <span>Show</span>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Opacity, %</span>
+                        <div class="slider-capsule">
+                            <input id="atlasGuideOpacity" type="number" min="0" max="100" step="1" value="50">
+                            <div class="slider-track-area">
+                                <input id="atlasGuideOpacityRange" type="range" min="0" max="100" step="1" value="50">
+                            </div>
+                            <button id="atlasGuideOpacityReset" class="slider-reset-btn" type="button" title="Reset to 50">
+                                <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </label>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
                         <h2>Export</h2>
                         <span id="atlasExportCount" class="panel-meta"></span>
                     </div>
@@ -171,6 +200,15 @@
                         <button class="seg" type="button" data-scope="group_file" title="The selected sectors as one sheet">GROUP FILE</button>
                         <button class="seg" type="button" data-scope="group_set" title="One PNG per sector, numbered 1001, 1002...">GROUP SET</button>
                     </div>
+                    <span class="field-label">Fill</span>
+                    <div class="seg-row seg-row--2" id="atlasFillSeg" role="group" aria-label="Fill">
+                        <button class="seg is-active" type="button" data-fill="transparent" title="Empty space stays transparent">TRANSPARENT</button>
+                        <button class="seg" type="button" data-fill="extend" title="Spread each tile's edge colour into empty space, per sector">EXTEND</button>
+                    </div>
+                    <label class="field">
+                        <span class="field-label">Edge, px</span>
+                        <input id="atlasEdge" type="number" min="1" max="8192" step="1" value="16" title="How far EXTEND spreads the edge colour, in pixels">
+                    </label>
                     <label class="field">
                         <span class="field-label">File name</span>
                         <input id="atlasExportName" type="text" spellcheck="false">
@@ -238,7 +276,7 @@
                 </section>
                 <section class="help-card">
                     <h3>6. Atlas</h3>
-                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag tiles, scale them by a corner, rotate with R. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...). SAVE keeps everything in a .ripper file.</p>
+                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag tiles, scale them by a corner, rotate with R or by dragging just outside a corner (Shift snaps to 15 degrees). Each tile turns about its pivot: Alt+drag moves it, Alt+double-click puts it back in the centre, Alt+corner scales about it. Guides LOAD puts a UV-layout PNG under the tiles of a sector; a name.1001.png set goes to sectors by number. Hold G to see the guides above the tiles in magenta. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...); Fill EXTEND spreads the tile edges by Edge px. Ctrl+Z undoes your own changes. SAVE keeps everything in a .ripper file.</p>
                 </section>
                 <section class="help-card">
                     <h3>Shortcuts</h3>
@@ -255,7 +293,13 @@
                     </dl>
                     <dl class="keys">
                         <dt>ATLAS</dt><dd></dd>
-                        <dt>R / Shift+R</dt><dd>Rotate the selected tiles</dd>
+                        <dt>R / Shift+R</dt><dd>Rotate the selected tiles by 90 degrees</dd>
+                        <dt>Drag outside a corner</dt><dd>Rotate freely, Shift for 15 degree steps</dd>
+                        <dt>Alt+drag / Alt+double-click</dt><dd>Move / reset the pivot</dd>
+                        <dt>Alt+corner</dt><dd>Scale about the pivot</dd>
+                        <dt>Hold G</dt><dd>Guides above the tiles in magenta</dd>
+                        <dt>Ctrl+Z</dt><dd>Undo</dd>
+                        <dt>Ctrl+Shift+Z / Ctrl+Y</dt><dd>Redo</dd>
                         <dt>Delete</dt><dd>Remove the selected tiles</dd>
                         <dt>Shift+click</dt><dd>Add to the selection</dd>
                         <dt>Esc</dt><dd>Clear the selection</dd>

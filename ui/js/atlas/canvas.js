@@ -1,11 +1,19 @@
-// ATLAS canvas (design D6 of add-texture-atlas): sectors, tiles and the "+" buttons on one
-// 2D canvas with pan and zoom. It never changes the workspace itself: every committed edit
-// goes through `hooks.edit`, and the canvas redraws from the document Rust returns.
+// ATLAS canvas (design D6 of add-texture-atlas, D5 of add-atlas-fine-work): sectors with their
+// graph-paper grid and UV guides, tiles at any angle and the "+" buttons on one 2D canvas with
+// pan and zoom. It never changes the workspace itself: every committed edit goes through
+// `hooks.edit`, and the canvas redraws from the document Rust returns.
 // Canvas space matches Rust: x right, y down; sector (u, v) spans y in [-(v+1)S, -vS).
 
-import { PLUS_ICON } from '../icons.js';
+import { PLUS_ICON, ROTATE_CURSOR, CROSSHAIR } from '../icons.js';
+import * as F from './frame.js';
 
 const HANDLE = 6; // half size of a corner handle, screen px
+const ROTATE_ZONE = 16; // depth of the rotate zone outside a corner, CSS px
+const PIVOT_HIT = 10; // pivot grab radius, CSS px
+const PIVOT_SNAP = 8; // pivot snap distance, CSS px
+const PIVOT_SIZE = 16; // pivot marker size, CSS px
+const MINOR_MIN = 6; // hide minor grid lines closer than this, CSS px
+const MAGENTA = '#FF00FF'; // guide preview colour (named deviation: not an O'Tool token)
 const SIDES = [
     { side: 'left', du: -1, dv: 0 },
     { side: 'right', du: 1, dv: 0 },
@@ -18,11 +26,14 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 export const sectorRect = (s, size) => ({ x: s.u * size, y: -(s.v + 1) * size, w: size, h: size });
 const inRect = (p, r) => p[0] >= r.x && p[0] < r.x + r.w && p[1] >= r.y && p[1] < r.y + r.h;
 const sameSector = (a, b) => a.u === b.u && a.v === b.v;
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const norm360 = (a) => ((a % 360) + 360) % 360;
+const deg = (v) => (Math.atan2(v[1], v[0]) * 180) / Math.PI;
 
 export class AtlasCanvas {
     /**
      * `hooks.edit(edit)` commits an edit; `hooks.select()` reports selection changes;
-     * `hooks.status(text)` shows live feedback (tile size while scaling).
+     * `hooks.status(text)` shows live feedback (size while scaling, angle while rotating).
      */
     constructor(stage, canvas, plusLayer, hooks) {
         this.stage = stage;
@@ -32,20 +43,25 @@ export class AtlasCanvas {
         this.hooks = hooks;
         this.doc = null;
         this.images = new Map(); // item -> ImageBitmap | 'loading'
+        this.tinted = new Map(); // guide item -> magenta canvas, built while the preview is on
         this.selTiles = new Set();
         this.selSectors = [];
         this.k = 0.25;
         this.ox = 0;
         this.oy = 0;
         this.fitted = false;
-        this.drag = null; // { kind: 'move'|'scale'|'pan', ... }
+        this.drag = null; // { kind: 'move'|'scale'|'rotate'|'pivot'|'pan', ... }
         this.space = false;
+        this.preview = false;
+        this.opacity = null; // live Opacity while its slider is dragged
         this.pending = false;
         this.colors = null;
+        stage.style.setProperty('--rotate-cursor', ROTATE_CURSOR);
         new ResizeObserver(() => this.resize()).observe(stage);
         canvas.addEventListener('pointerdown', (e) => this.onDown(e));
         window.addEventListener('pointermove', (e) => this.onMove(e));
         window.addEventListener('pointerup', (e) => this.onUp(e));
+        canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
         canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     }
 
@@ -78,19 +94,30 @@ export class AtlasCanvas {
         this.request();
     }
 
+    loadImage(item, max) {
+        if (this.images.has(item)) return;
+        this.images.set(item, 'loading');
+        fetch(`http://ripper.localhost/atlas/${this.doc.id}/${item}?max=${max}`)
+            .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.status))))
+            .then((b) => createImageBitmap(b))
+            .then((bmp) => {
+                this.images.set(item, bmp);
+                this.request();
+            })
+            .catch(() => this.images.delete(item));
+    }
+
     loadImages() {
-        for (const t of this.doc.manifest.tiles) {
-            if (this.images.has(t.item)) continue;
-            this.images.set(t.item, 'loading');
-            fetch(`http://ripper.localhost/atlas/${this.doc.id}/${t.item}?max=2048`)
-                .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.status))))
-                .then((b) => createImageBitmap(b))
-                .then((bmp) => {
-                    this.images.set(t.item, bmp);
-                    this.request();
-                })
-                .catch(() => this.images.delete(t.item));
-        }
+        for (const t of this.doc.manifest.tiles) this.loadImage(t.item, 2048);
+        for (const g of this.doc.manifest.guides) this.loadImage(g.item, 4096);
+    }
+
+    /** Hold-G preview: guides drawn above the tiles in magenta. */
+    setPreview(on) {
+        if (this.preview === on) return;
+        this.preview = on;
+        if (!on) this.tinted.clear();
+        this.request();
     }
 
     // ---- view ----
@@ -111,7 +138,7 @@ export class AtlasCanvas {
 
     bounds() {
         const m = this.doc.manifest;
-        const rs = m.sectors.map((s) => sectorRect(s, m.sector_size)).concat(m.tiles.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })));
+        const rs = m.sectors.map((s) => sectorRect(s, m.sector_size)).concat(m.tiles.map((t) => F.rect(t)));
         const x0 = Math.min(...rs.map((r) => r.x));
         const y0 = Math.min(...rs.map((r) => r.y));
         const x1 = Math.max(...rs.map((r) => r.x + r.w));
@@ -148,20 +175,19 @@ export class AtlasCanvas {
 
     // ---- hit testing ----
 
-    /** Displayed rect of a tile, including an in-progress move or scale. */
-    tileRect(t) {
+    /** Frame of a tile as shown, including an in-progress gesture. */
+    shown(t) {
         const d = this.drag;
-        if (d && d.kind === 'move' && this.selTiles.has(t.id)) {
-            return { x: t.x + d.dx, y: t.y + d.dy, w: t.w, h: t.h };
-        }
-        if (d && d.kind === 'scale' && d.id === t.id && d.rect) return d.rect;
-        return { x: t.x, y: t.y, w: t.w, h: t.h };
+        if (!d) return t;
+        if (d.kind === 'move' && this.selTiles.has(t.id)) return F.moved(t, d.dx, d.dy);
+        if ((d.kind === 'scale' || d.kind === 'rotate' || d.kind === 'pivot') && d.id === t.id && d.frame) return d.frame;
+        return t;
     }
 
     tileAt(p) {
         const tiles = this.doc.manifest.tiles;
         for (let i = tiles.length - 1; i >= 0; i--) {
-            if (inRect(p, this.tileRect(tiles[i]))) return tiles[i];
+            if (F.contains(this.shown(tiles[i]), p)) return tiles[i];
         }
         return null;
     }
@@ -171,26 +197,39 @@ export class AtlasCanvas {
         return m.sectors.find((s) => inRect(p, sectorRect(s, m.sector_size))) ?? null;
     }
 
-    corners(r) {
-        return {
-            top_left: [r.x, r.y],
-            top_right: [r.x + r.w, r.y],
-            bottom_right: [r.x + r.w, r.y + r.h],
-            bottom_left: [r.x, r.y + r.h],
-        };
+    /** The single selected tile, if exactly one is selected. */
+    single() {
+        if (this.selTiles.size !== 1) return null;
+        return this.doc.manifest.tiles.find((x) => this.selTiles.has(x.id)) ?? null;
     }
 
     /** Handle under the screen point for the single selected tile: its corner name. */
     handleAt(s) {
-        if (this.selTiles.size !== 1) return null;
-        const t = this.doc.manifest.tiles.find((x) => this.selTiles.has(x.id));
+        const t = this.single();
         if (!t) return null;
         const r = HANDLE * (window.devicePixelRatio || 1) + 2;
-        for (const [name, c] of Object.entries(this.corners(this.tileRect(t)))) {
-            const p = this.toScreen(c);
-            if (Math.abs(p[0] - s[0]) <= r && Math.abs(p[1] - s[1]) <= r) return { tile: t, corner: name };
+        const cs = F.corners(this.shown(t));
+        for (let i = 0; i < 4; i++) {
+            const p = this.toScreen(cs[i]);
+            if (Math.abs(p[0] - s[0]) <= r && Math.abs(p[1] - s[1]) <= r) return { tile: t, corner: F.CORNERS[i] };
         }
         return null;
+    }
+
+    /** True when the screen point is in the rotate zone just outside a corner of the single tile. */
+    rotateZoneAt(s) {
+        const t = this.single();
+        if (!t) return false;
+        const f = this.shown(t);
+        if (F.contains(f, this.toCanvas(...s))) return false;
+        const zone = (ROTATE_ZONE + HANDLE) * (window.devicePixelRatio || 1);
+        return F.corners(f).some((c) => dist(this.toScreen(c), s) <= zone);
+    }
+
+    pivotAt(s) {
+        const t = this.single();
+        if (!t) return false;
+        return dist(this.toScreen(F.pivotCanvas(this.shown(t))), s) <= PIVOT_HIT * (window.devicePixelRatio || 1);
     }
 
     // ---- pointer ----
@@ -208,9 +247,18 @@ export class AtlasCanvas {
         const p = this.toCanvas(...s);
         const h = this.handleAt(s);
         if (h) {
-            const opposite = { top_left: 'bottom_right', top_right: 'bottom_left', bottom_right: 'top_left', bottom_left: 'top_right' };
-            const anchor = opposite[h.corner];
-            this.drag = { kind: 'scale', id: h.tile.id, tile: h.tile, anchor, fixed: this.corners(h.tile)[anchor], rect: null };
+            this.drag = { kind: 'scale', id: h.tile.id, tile: h.tile, corner: h.corner, anchor: e.altKey ? 'pivot' : F.OPPOSITE[h.corner], frame: null };
+            return;
+        }
+        const one = this.single();
+        if (one && e.altKey && (this.pivotAt(s) || F.contains(one, p))) {
+            e.preventDefault();
+            this.drag = { kind: 'pivot', id: one.id, tile: one, start: s, frame: null, pivot: one.pivot };
+            return;
+        }
+        if (this.rotateZoneAt(s)) {
+            const pv = F.pivotCanvas(one);
+            this.drag = { kind: 'rotate', id: one.id, tile: one, a0: deg([p[0] - pv[0], p[1] - pv[1]]), frame: null };
             return;
         }
         const t = this.tileAt(p);
@@ -245,43 +293,87 @@ export class AtlasCanvas {
         this.request();
     }
 
+    hover(s) {
+        const h = this.handleAt(s);
+        const nwse = h && (h.corner === 'top_left' || h.corner === 'bottom_right');
+        const rot = !h && this.rotateZoneAt(s);
+        this.stage.classList.toggle('over-handle-nwse', Boolean(h && nwse));
+        this.stage.classList.toggle('over-handle-nesw', Boolean(h && !nwse));
+        this.stage.classList.toggle('over-rotate', Boolean(rot));
+        const t = !h && !rot && this.tileAt(this.toCanvas(...s));
+        this.stage.classList.toggle('over-tile', Boolean(t));
+    }
+
     onMove(e) {
         if (!this.doc) return;
         const s = this.local(e);
         const d = this.drag;
         if (!d) {
-            if (e.target !== this.canvas) return;
-            const h = this.handleAt(s);
-            const nwse = h && (h.corner === 'top_left' || h.corner === 'bottom_right');
-            this.stage.classList.toggle('over-handle-nwse', Boolean(h && nwse));
-            this.stage.classList.toggle('over-handle-nesw', Boolean(h && !nwse));
-            const t = !h && this.tileAt(this.toCanvas(...s));
-            this.stage.classList.toggle('over-tile', Boolean(t));
+            if (e.target === this.canvas) this.hover(s);
             return;
         }
+        const p = this.toCanvas(...s);
         if (d.kind === 'pan') {
             this.ox += s[0] - d.last[0];
             this.oy += s[1] - d.last[1];
             d.last = s;
-            this.request();
         } else if (d.kind === 'move') {
-            const p = this.toCanvas(...s);
             d.dx = Math.round(p[0] - d.start[0]);
             d.dy = Math.round(p[1] - d.start[1]);
-            this.request();
         } else if (d.kind === 'scale') {
-            const p = this.toCanvas(...s);
+            this.dragScale(d, p);
+        } else if (d.kind === 'rotate') {
             const t = d.tile;
-            const ratio = t.h / t.w;
-            const [fx, fy] = d.fixed;
-            const w = Math.max(1, Math.round(Math.max(Math.abs(p[0] - fx), Math.abs(p[1] - fy) / ratio)));
-            const h = Math.max(1, Math.round(w * ratio));
-            const x = d.anchor.endsWith('left') ? fx : fx - w;
-            const y = d.anchor.startsWith('top') ? fy : fy - h;
-            d.rect = { x, y, w, h };
-            this.hooks.status(`${w} × ${h}`);
-            this.request();
+            const pv = F.pivotCanvas(t);
+            let total = F.angle(t) + (deg([p[0] - pv[0], p[1] - pv[1]]) - d.a0);
+            if (e.shiftKey) total = Math.round(total / 15) * 15;
+            d.angle = total;
+            d.frame = F.turned(t, total);
+            this.hooks.status(`Rotate ${Number(norm360(total).toFixed(1))}°`);
+        } else if (d.kind === 'pivot') {
+            if (!d.frame && dist(s, d.start) < 3) return;
+            this.dragPivot(d, p, s);
         }
+        this.request();
+    }
+
+    dragScale(d, p) {
+        const t = d.tile;
+        const l = F.toLocal(t, p);
+        let w;
+        if (d.anchor === 'pivot') {
+            const P = F.pivotLocal(t);
+            const C = F.cornerLocal(t, d.corner);
+            const sx = Math.abs(C[0] - P[0]) > 0.5 ? Math.abs(l[0] - P[0]) / Math.abs(C[0] - P[0]) : 0;
+            const sy = Math.abs(C[1] - P[1]) > 0.5 ? Math.abs(l[1] - P[1]) / Math.abs(C[1] - P[1]) : 0;
+            const k = Math.max(sx, sy) || 1;
+            w = Math.max(1, Math.round(t.w * k));
+        } else {
+            const A = F.cornerLocal(t, d.anchor);
+            w = Math.max(1, Math.round(Math.max(Math.abs(l[0] - A[0]), (Math.abs(l[1] - A[1]) * t.w0) / t.h0)));
+        }
+        const h = Math.max(1, Math.round((w * t.h0) / t.w0));
+        d.w = w;
+        d.frame = F.scaled(t, w, h, d.anchor);
+        this.hooks.status(`${w} × ${h}`);
+    }
+
+    dragPivot(d, p, s) {
+        const t = d.tile;
+        const l = F.toLocal(t, p);
+        let q = [Math.round(l[0] + t.w / 2), Math.round(l[1] + t.h / 2)];
+        let centre = false;
+        const snap = PIVOT_SNAP * (window.devicePixelRatio || 1);
+        for (const sp of F.snapPoints(t)) {
+            const c = this.toScreen(F.toCanvas(t, [sp[0] - t.w / 2, sp[1] - t.h / 2]));
+            if (dist(c, s) <= snap) {
+                centre = sp[0] === t.w / 2 && sp[1] === t.h / 2;
+                q = [Math.round(sp[0]), Math.round(sp[1])];
+                break;
+            }
+        }
+        d.pivot = centre ? null : q;
+        d.frame = { ...t, pivot: d.pivot };
     }
 
     onUp() {
@@ -289,22 +381,31 @@ export class AtlasCanvas {
         if (!d) return;
         this.drag = null;
         this.stage.classList.remove('is-panning');
+        const find = (id) => this.doc.manifest.tiles.find((x) => x.id === id);
         if (d.kind === 'move' && (d.dx !== 0 || d.dy !== 0)) {
-            const moves = this.doc.manifest.tiles.filter((t) => this.selTiles.has(t.id)).map((t) => [t.id, t.x + d.dx, t.y + d.dy]);
+            const ids = this.doc.manifest.tiles.filter((t) => this.selTiles.has(t.id)).map((t) => t.id);
             // Keep the moved position on screen until the new document arrives.
-            for (const t of this.doc.manifest.tiles) {
-                if (this.selTiles.has(t.id)) {
-                    t.x += d.dx;
-                    t.y += d.dy;
-                }
-            }
-            this.hooks.edit({ op: 'move', moves });
-        } else if (d.kind === 'scale' && d.rect) {
-            const t = this.doc.manifest.tiles.find((x) => x.id === d.id);
-            if (t) Object.assign(t, d.rect);
-            this.hooks.edit({ op: 'scale', id: d.id, w: d.rect.w, anchor: d.anchor });
+            for (const id of ids) Object.assign(find(id), F.moved(find(id), d.dx, d.dy));
+            this.hooks.edit({ op: 'move', ids, dx: d.dx, dy: d.dy });
+        } else if (d.kind === 'scale' && d.frame) {
+            Object.assign(find(d.id) ?? {}, d.frame);
+            this.hooks.edit({ op: 'scale', id: d.id, w: d.w, anchor: d.anchor });
+        } else if (d.kind === 'rotate' && d.frame) {
+            Object.assign(find(d.id) ?? {}, d.frame);
+            this.hooks.edit({ op: 'turn', id: d.id, angle: d.angle });
+        } else if (d.kind === 'pivot' && d.frame) {
+            Object.assign(find(d.id) ?? {}, d.frame);
+            this.hooks.edit({ op: 'set_pivot', id: d.id, pivot: d.pivot });
         }
         this.request();
+    }
+
+    onDblClick(e) {
+        const t = this.single();
+        if (!t || !e.altKey) return;
+        const s = this.local(e);
+        if (!this.pivotAt(s) && !F.contains(t, this.toCanvas(...s))) return;
+        if (t.pivot) this.hooks.edit({ op: 'set_pivot', id: t.id, pivot: null });
     }
 
     onWheel(e) {
@@ -324,6 +425,77 @@ export class AtlasCanvas {
         });
     }
 
+    /** Screen rect of a sector, or null when it is off screen. */
+    visible(r) {
+        const [x0, y0] = this.toScreen([r.x, r.y]);
+        const [x1, y1] = this.toScreen([r.x + r.w, r.y + r.h]);
+        if (x1 < 0 || y1 < 0 || x0 > this.canvas.width || y0 > this.canvas.height) return null;
+        return [x0, y0, x1, y1];
+    }
+
+    /** Graph-paper grid: major lines every S/8, minor every S/64 (hidden when too dense). */
+    drawGrid(m, c, dpr) {
+        const g = this.ctx;
+        const S = m.sector_size;
+        const showMinor = (S / 64) * this.k >= MINOR_MIN * dpr;
+        const W = this.canvas.width;
+        const H = this.canvas.height;
+        const minor = new Path2D();
+        const major = new Path2D();
+        for (const s of m.sectors) {
+            const v = this.visible(sectorRect(s, S));
+            if (!v) continue;
+            const [x0, y0, x1, y1] = v;
+            const step = (x1 - x0) / 64;
+            for (let i = 1; i < 64; i++) {
+                const isMajor = i % 8 === 0;
+                if (!isMajor && !showMinor) continue;
+                const path = isMajor ? major : minor;
+                const x = Math.round(x0 + i * step) + 0.5;
+                if (x >= 0 && x <= W) {
+                    path.moveTo(x, Math.max(y0, 0));
+                    path.lineTo(x, Math.min(y1, H));
+                }
+                const y = Math.round(y0 + i * step) + 0.5;
+                if (y >= 0 && y <= H) {
+                    path.moveTo(Math.max(x0, 0), y);
+                    path.lineTo(Math.min(x1, W), y);
+                }
+            }
+        }
+        g.lineWidth = dpr;
+        g.strokeStyle = c.line;
+        g.stroke(minor);
+        g.strokeStyle = c.line2;
+        g.stroke(major);
+    }
+
+    tint(item, img) {
+        let t = this.tinted.get(item);
+        if (t) return t;
+        t = document.createElement('canvas');
+        t.width = img.width;
+        t.height = img.height;
+        const x = t.getContext('2d');
+        x.drawImage(img, 0, 0);
+        x.globalCompositeOperation = 'source-in';
+        x.fillStyle = MAGENTA;
+        x.fillRect(0, 0, t.width, t.height);
+        this.tinted.set(item, t);
+        return t;
+    }
+
+    drawGuides(m, tinted) {
+        const g = this.ctx;
+        for (const gd of m.guides) {
+            const r = sectorRect(gd.sector, m.sector_size);
+            if (!this.visible(r)) continue;
+            const img = this.images.get(gd.item);
+            if (!img || img === 'loading') continue;
+            g.drawImage(tinted ? this.tint(gd.item, img) : img, r.x, r.y, r.w, r.h);
+        }
+    }
+
     draw() {
         const g = this.ctx;
         const W = this.canvas.width;
@@ -331,6 +503,7 @@ export class AtlasCanvas {
         this.colors ??= { bg: css('--bg'), panel2: css('--panel-2'), line: css('--line'), line2: css('--line-2'), blue: css('--blue'), muted: css('--muted') };
         const c = this.colors;
         g.setTransform(1, 0, 0, 1, 0, 0);
+        g.globalAlpha = 1;
         g.fillStyle = c.bg;
         g.fillRect(0, 0, W, H);
         if (!this.doc) return;
@@ -345,22 +518,31 @@ export class AtlasCanvas {
             g.fillStyle = c.panel2;
             g.fillRect(r.x, r.y, r.w, r.h);
         }
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        this.drawGrid(m, c, dpr);
+
+        g.setTransform(this.k, 0, 0, this.k, this.ox, this.oy);
         g.imageSmoothingQuality = 'high';
+        if (m.guide_show) {
+            g.globalAlpha = (this.opacity ?? m.guide_opacity) / 100;
+            this.drawGuides(m, false);
+            g.globalAlpha = 1;
+        }
         for (const t of m.tiles) {
-            const r = this.tileRect(t);
+            const f = this.shown(t);
             const img = this.images.get(t.item);
+            const [cx, cy] = F.centre(f);
             g.save();
-            g.translate(r.x + r.w / 2, r.y + r.h / 2);
-            g.rotate((t.rot * Math.PI) / 2);
-            const odd = t.rot % 2 === 1;
-            const [dw, dh] = odd ? [r.h, r.w] : [r.w, r.h];
-            if (img && img !== 'loading') g.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+            g.translate(cx, cy);
+            g.rotate((F.angle(f) * Math.PI) / 180);
+            if (img && img !== 'loading') g.drawImage(img, -f.w / 2, -f.h / 2, f.w, f.h);
             else {
                 g.fillStyle = c.line;
-                g.fillRect(-dw / 2, -dh / 2, dw, dh);
+                g.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
             }
             g.restore();
         }
+        if (this.preview) this.drawGuides(m, true);
 
         // Screen-space strokes and labels.
         g.setTransform(1, 0, 0, 1, 0, 0);
@@ -386,22 +568,49 @@ export class AtlasCanvas {
         g.lineWidth = dpr;
         for (const t of m.tiles) {
             if (!this.selTiles.has(t.id)) continue;
-            const r = this.tileRect(t);
-            const [x0, y0] = this.toScreen([r.x, r.y]);
-            const [x1, y1] = this.toScreen([r.x + r.w, r.y + r.h]);
+            const f = this.shown(t);
+            const cs = F.corners(f).map((p) => this.toScreen(p));
             g.strokeStyle = c.blue;
-            g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+            g.beginPath();
+            cs.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+            g.closePath();
+            g.stroke();
             if (this.selTiles.size === 1) {
                 const hs = HANDLE * dpr;
-                for (const p of Object.values(this.corners(r))) {
-                    const [sx, sy] = this.toScreen(p);
+                for (const [sx, sy] of cs) {
                     g.fillStyle = c.bg;
                     g.fillRect(sx - hs, sy - hs, 2 * hs, 2 * hs);
                     g.strokeRect(sx - hs, sy - hs, 2 * hs, 2 * hs);
                 }
+                this.drawPivot(this.toScreen(F.pivotCanvas(f)), c, dpr);
             }
         }
         this.placePlus();
+    }
+
+    /** Pivot marker: Lucide `crosshair` geometry, blue over a dark halo. */
+    drawPivot(p, c, dpr) {
+        const g = this.ctx;
+        const k = (PIVOT_SIZE * dpr) / 24;
+        g.save();
+        g.translate(p[0] - 12 * k, p[1] - 12 * k);
+        g.scale(k, k);
+        const path = new Path2D();
+        const [cx, cy, r] = CROSSHAIR.circle;
+        path.arc(cx, cy, r, 0, Math.PI * 2);
+        for (const [x1, y1, x2, y2] of CROSSHAIR.lines) {
+            path.moveTo(x1, y1);
+            path.lineTo(x2, y2);
+        }
+        g.lineCap = 'round';
+        g.lineJoin = 'round';
+        g.strokeStyle = c.bg;
+        g.lineWidth = 4;
+        g.stroke(path);
+        g.strokeStyle = c.blue;
+        g.lineWidth = 2;
+        g.stroke(path);
+        g.restore();
     }
 
     /** "+" buttons on the free sides of the single selected sector. */

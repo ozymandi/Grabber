@@ -3,7 +3,8 @@
 //! ([`crate::warp::warp`]) with its Jacobian-adaptive supersampling. Outputs start fully
 //! transparent; tiles are composited source-over in manifest order and clipped per sector.
 
-use super::model::{udim, Manifest, Rect, Refused, Sector, Tile};
+use super::model::{turn, udim, Fill, Frame, Manifest, Rect, Refused, Sector, Tile};
+use rayon::prelude::*;
 use crate::warp::{self, Rgba};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -70,6 +71,33 @@ pub fn render_tile(original: &Image, rot: u8, w: u32, h: u32) -> Image {
     Image { w, h, rgba }
 }
 
+/// Sub-samples per axis for tilted tiles: 16 coverage levels on their edges.
+pub const TILT_SUB: u32 = 4;
+
+/// Renders a tile into its bounding box ([`Frame::rect`]). Without tilt this is
+/// [`render_tile`]: exact quarter turns, filtered scaling. With tilt the box is sampled
+/// through the inverse rotation, with at least [`TILT_SUB`]^2 sub-samples per pixel so the
+/// edges are antialiased; outside the tile stays transparent.
+pub fn render_frame(original: &Image, f: &Frame) -> Image {
+    if f.tilt == 0.0 {
+        let (rw, rh) = f.rotated_size();
+        return render_tile(original, f.rot, rw as u32, rh as u32);
+    }
+    let r = f.rect();
+    let c = f.centre();
+    let (sx, sy) = (original.w as f64 / f.w as f64, original.h as f64 / f.h as f64);
+    let to_source = |p: [f64; 2]| -> [f64; 2] {
+        let l = turn([p[0] - c[0], p[1] - c[1]], -f.angle());
+        [(l[0] + f.w as f64 / 2.0) * sx, (l[1] + f.h as f64 / 2.0) * sy]
+    };
+    let (x0, y0, x1, y1) = (r.x as f64, r.y as f64, r.right() as f64, r.bottom() as f64);
+    let corners = [to_source([x0, y0]), to_source([x1, y0]), to_source([x1, y1]), to_source([x0, y1])];
+    let src = Rgba { w: original.w, h: original.h, data: &original.rgba };
+    let (w, h) = (r.w as u32, r.h as u32);
+    let rgba = warp::warp_sub(&src, &corners, w, h, TILT_SUB).unwrap_or_else(|| vec![0; w as usize * h as usize * 4]);
+    Image { w, h, rgba }
+}
+
 /// Straight-alpha source-over of one pixel.
 #[inline]
 fn over(dst: &mut [u8], src: &[u8]) {
@@ -93,15 +121,16 @@ fn over(dst: &mut [u8], src: &[u8]) {
 /// Draws the part of `tile` (rendered as `img`) that lies in `clip` into `out`, whose
 /// top-left corner is at canvas position `origin`.
 fn blit(out: &mut Image, origin: (i64, i64), clip: &Rect, tile: &Tile, img: &Image) {
-    let Some(r) = clip.intersection(&tile.rect()) else { return };
+    let tr = tile.rect();
+    let Some(r) = clip.intersection(&tr) else { return };
     let ow = out.w as usize;
     let tw = img.w as usize;
     for y in r.y..r.bottom() {
         let oy = (y - origin.1) as usize;
-        let ty = (y - tile.y) as usize;
+        let ty = (y - tr.y) as usize;
         for x in r.x..r.right() {
             let o = (oy * ow + (x - origin.0) as usize) * 4;
-            let t = (ty * tw + (x - tile.x) as usize) * 4;
+            let t = (ty * tw + (x - tr.x) as usize) * 4;
             over(&mut out.rgba[o..o + 4], &img.rgba[t..t + 4]);
         }
     }
@@ -124,16 +153,143 @@ pub fn render_area(
         if !cells.iter().any(|c| c.intersects(&t.rect())) {
             continue;
         }
-        if !cache.contains_key(&t.id) {
+        if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(t.id) {
             let original = load(t)?;
-            cache.insert(t.id, render_tile(&original, t.rot, t.w as u32, t.h as u32));
+            e.insert(render_frame(&original, &t.frame));
         }
         let img = &cache[&t.id];
         for c in cells {
             blit(&mut out, origin, c, t, img);
         }
     }
+    if m.fill == Fill::Extend {
+        // Per cell, so colour never crosses a sector border and every scope gives the same
+        // pixels for a sector (design D3 of add-atlas-fine-work).
+        for c in cells {
+            let (cx, cy) = ((c.x - origin.0) as usize, (c.y - origin.1) as usize);
+            let (cw, ch) = (c.w as usize, c.h as usize);
+            let mut cell = Image::transparent(c.w as u32, c.h as u32);
+            for y in 0..ch {
+                let src = ((cy + y) * w as usize + cx) * 4;
+                cell.rgba[y * cw * 4..(y + 1) * cw * 4].copy_from_slice(&out.rgba[src..src + cw * 4]);
+            }
+            extend_edges(&mut cell, m.edge);
+            for y in 0..ch {
+                let dst = ((cy + y) * w as usize + cx) * 4;
+                out.rgba[dst..dst + cw * 4].copy_from_slice(&cell.rgba[y * cw * 4..(y + 1) * cw * 4]);
+            }
+        }
+    }
     Ok(out)
+}
+
+/// Pixels with at least this alpha are tile colour that edge fill spreads.
+pub const SEED_ALPHA: u8 = 128;
+
+/// Edge fill (design D3): every pixel that is not fully opaque and lies within `edge` pixels
+/// (Euclidean, between pixel centres) of a seed pixel is composited over the nearest seed's
+/// colour, made opaque. Uses an exact nearest-seed transform: a column pass, then the
+/// Felzenszwalb-Huttenlocher lower envelope per row.
+pub fn extend_edges(img: &mut Image, edge: u32) {
+    let (w, h) = (img.w as usize, img.h as usize);
+    if w == 0 || h == 0 || edge == 0 {
+        return;
+    }
+    const NONE: u32 = u32::MAX;
+    let seed = |i: usize| img.rgba[i * 4 + 3] >= SEED_ALPHA;
+    // Column pass: nearest seed row in the same column, for every pixel.
+    let mut near_row = vec![NONE; w * h];
+    let mut last = vec![NONE; w];
+    for y in 0..h {
+        for (x, above) in last.iter_mut().enumerate() {
+            if seed(y * w + x) {
+                *above = y as u32;
+            }
+        }
+        near_row[y * w..(y + 1) * w].copy_from_slice(&last);
+    }
+    last.fill(NONE);
+    for y in (0..h).rev() {
+        let yu = y as u32;
+        for (x, below) in last.iter_mut().enumerate() {
+            let i = y * w + x;
+            if img.rgba[i * 4 + 3] >= SEED_ALPHA {
+                *below = yu;
+            }
+            let above = near_row[i];
+            if *below != NONE && (above == NONE || *below - yu < yu - above) {
+                near_row[i] = *below;
+            }
+        }
+    }
+    let limit = edge as i64 * edge as i64;
+    let src = img.rgba.clone();
+    img.rgba.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {
+        // g(x) = squared vertical distance to the column's nearest seed; lower envelope of the
+        // parabolas (x - q)^2 + g(q) gives the nearest seed column for every x.
+        let g = |q: usize| -> Option<i64> {
+            let r = near_row[y * w + q];
+            (r != NONE).then(|| {
+                let d = r as i64 - y as i64;
+                d * d
+            })
+        };
+        let qs: Vec<usize> = (0..w).filter(|&q| g(q).is_some()).collect();
+        if qs.is_empty() {
+            return;
+        }
+        let f = |q: usize| g(q).unwrap() as f64 + (q * q) as f64;
+        let mut v: Vec<usize> = Vec::with_capacity(qs.len());
+        let mut z: Vec<f64> = Vec::with_capacity(qs.len() + 1);
+        for &q in &qs {
+            loop {
+                match v.last() {
+                    None => {
+                        v.push(q);
+                        z.clear();
+                        z.push(f64::NEG_INFINITY);
+                        break;
+                    }
+                    Some(&p) => {
+                        let s = (f(q) - f(p)) / (2.0 * (q as f64 - p as f64));
+                        if s <= *z.last().unwrap() {
+                            v.pop();
+                            z.pop();
+                            if v.is_empty() {
+                                continue;
+                            }
+                        } else {
+                            v.push(q);
+                            z.push(s);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        let mut k = 0;
+        for x in 0..w {
+            while k + 1 < v.len() && z[k + 1] < x as f64 {
+                k += 1;
+            }
+            let p = &mut row[x * 4..x * 4 + 4];
+            if p[3] == 255 {
+                continue;
+            }
+            let q = v[k];
+            let dx = x as i64 - q as i64;
+            let d2 = dx * dx + g(q).unwrap();
+            if d2 > limit {
+                continue;
+            }
+            let si = (near_row[y * w + q] as usize * w + q) * 4;
+            let a = p[3] as f32 / 255.0;
+            for c in 0..3 {
+                p[c] = (p[c] as f32 * a + src[si + c] as f32 * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
+            }
+            p[3] = 255;
+        }
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,6 +377,18 @@ mod tests {
     use super::*;
     use crate::atlas::model::{Provenance, Side};
 
+    fn frame(x: i64, y: i64, o: &Image, rot: u8) -> Frame {
+        let mut f = Frame::from_rect(Rect { x, y, w: o.w as i64, h: o.h as i64 });
+        for _ in 0..rot {
+            f.quarter_turn(true);
+        }
+        // Keep the top-left of the turned box at (x, y), as the tests describe it.
+        let r = f.rect();
+        f.c2[0] += 2 * (x - r.x);
+        f.c2[1] += 2 * (y - r.y);
+        f
+    }
+
     fn img(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 4]) -> Image {
         let mut rgba = Vec::with_capacity((w * h * 4) as usize);
         for y in 0..h {
@@ -239,8 +407,7 @@ mod tests {
     }
 
     fn tile(id: u64, x: i64, y: i64, o: &Image, rot: u8) -> Tile {
-        let (w, h) = if rot % 2 == 1 { (o.h, o.w) } else { (o.w, o.h) };
-        Tile { id, item: format!("{id}"), w0: o.w, h0: o.h, x, y, w: w as i64, h: h as i64, rot, source: Provenance::default() }
+        Tile { id, item: format!("{id}"), w0: o.w, h0: o.h, frame: frame(x, y, o, rot), source: Provenance::default() }
     }
 
     fn px(i: &Image, x: u32, y: u32) -> [u8; 4] {
@@ -414,6 +581,178 @@ mod tests {
         let existing = ["cafe.1001.png"];
         assert_eq!(free_stem("cafe", &outs, &|n| existing.contains(&n)), "cafe_2");
         assert_eq!(free_stem("shop", &outs, &|n| existing.contains(&n)), "shop");
+    }
+
+    #[test]
+    fn format_one_tiles_export_the_same_pixels() {
+        // A 2.0.0 manifest: the tile is turned once, its turned box at (3, -40) is 6 x 9.
+        let v1 = r#"{"format":1,"revision":1,"name":"x","sector_size":64,"padding":8,"sectors":[{"u":0,"v":0}],"active":null,"next_id":2,
+            "tiles":[{"id":1,"item":"a","w0":9,"h0":6,"x":3,"y":-40,"w":6,"h":9,"rot":1}]}"#;
+        let m = crate::atlas::model::parse_manifest(v1).unwrap();
+        let o = noise(9, 6);
+        let out = export(&m, &[Sector { u: 0, v: 0 }], Scope::Sector, &HashMap::from([(1, o.clone())]));
+        let turned = rotate_exact(&o, 1);
+        for y in 0..9 {
+            for x in 0..6 {
+                assert_eq!(px(&out[0].1, 3 + x, 24 + y), px(&turned, x, y));
+            }
+        }
+    }
+
+    #[test]
+    fn freely_rotated_tile_has_soft_edges() {
+        let mut m = Manifest::default();
+        m.sector_size = 128;
+        let o = img(40, 20, |_, _| [200, 50, 10, 255]);
+        let mut t = tile(1, 40, -80, &o, 0);
+        t.frame.turn_to(30.0);
+        m.tiles.push(t);
+        let out = export(&m, &[Sector { u: 0, v: 0 }], Scope::Sector, &HashMap::from([(1, o)]));
+        let i = &out[0].1;
+        let alphas: Vec<u8> = i.rgba.chunks(4).map(|p| p[3]).collect();
+        assert!(alphas.iter().any(|&a| a > 0 && a < 255), "partial-alpha edge pixels");
+        assert!(alphas.iter().filter(|&&a| a == 255).count() > 500, "solid inside");
+        assert_eq!(px(i, 0, 0), [0, 0, 0, 0], "transparent around");
+        // Colour stays the tile's colour on the soft edge (no dark fringe).
+        for p in i.rgba.chunks(4).filter(|p| p[3] > 0) {
+            assert!((p[0] as i32 - 200).abs() <= 1 && (p[1] as i32 - 50).abs() <= 1, "{p:?}");
+        }
+    }
+
+    fn extend(m: &mut Manifest, edge: u32) {
+        m.set_fill(Fill::Extend, edge).unwrap();
+    }
+
+    #[test]
+    fn extend_by_16_pixels() {
+        let mut m = Manifest::default();
+        m.sector_size = 128;
+        extend(&mut m, 16);
+        let red = img(20, 10, |_, _| [255, 0, 0, 255]);
+        m.tiles.push(tile(1, 50, -80, &red, 0)); // box x 50..70, y 48..58 in the sector image
+        let out = export(&m, &[Sector { u: 0, v: 0 }], Scope::Sector, &HashMap::from([(1, red)]));
+        let i = &out[0].1;
+        assert_eq!(px(i, 70 + 15, 52), [255, 0, 0, 255], "16th pixel to the right");
+        assert_eq!(px(i, 70 + 16, 52), [0, 0, 0, 0], "17th pixel stays transparent");
+        assert_eq!(px(i, 50 - 16, 52), [255, 0, 0, 255]);
+        assert_eq!(px(i, 50 - 17, 52), [0, 0, 0, 0]);
+        assert_eq!(px(i, 60, 48 - 16), [255, 0, 0, 255]);
+        assert_eq!(px(i, 60, 48 - 17), [0, 0, 0, 0]);
+        // Diagonal beyond the radius stays empty: (12, 12) from the corner is 17 px away.
+        assert_eq!(px(i, 70 + 11, 58 + 11), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn two_tiles_meet_halfway() {
+        let mut m = Manifest::default();
+        m.sector_size = 128;
+        extend(&mut m, 16);
+        let red = img(10, 10, |_, _| [255, 0, 0, 255]);
+        let blue = img(10, 10, |_, _| [0, 0, 255, 255]);
+        m.tiles.push(tile(1, 20, -100, &red, 0)); // x 20..30
+        m.tiles.push(tile(2, 38, -100, &blue, 0)); // x 38..48, gap 30..38
+        let out = export(&m, &[Sector { u: 0, v: 0 }], Scope::Sector, &HashMap::from([(1, red), (2, blue)]));
+        let i = &out[0].1;
+        for x in 30..34 {
+            assert_eq!(px(i, x, 32), [255, 0, 0, 255], "x {x}");
+        }
+        for x in 34..38 {
+            assert_eq!(px(i, x, 32), [0, 0, 255, 255], "x {x}");
+        }
+    }
+
+    #[test]
+    fn soft_edge_becomes_solid() {
+        let mut m = Manifest::default();
+        m.sector_size = 128;
+        extend(&mut m, 16);
+        let o = img(40, 20, |_, _| [200, 50, 10, 255]);
+        let mut t = tile(1, 40, -80, &o, 0);
+        t.frame.turn_to(30.0);
+        let r = t.rect();
+        m.tiles.push(t);
+        let out = export(&m, &[Sector { u: 0, v: 0 }], Scope::Sector, &HashMap::from([(1, o)]));
+        let i = &out[0].1;
+        // Every visible pixel is solid tile colour: no soft or dark fringe anywhere.
+        for p in i.rgba.chunks(4).filter(|p| p[3] > 0) {
+            assert_eq!(p[3], 255, "{p:?}");
+            assert!((p[0] as i32 - 200).abs() <= 1 && (p[1] as i32 - 50).abs() <= 1, "{p:?}");
+        }
+        // And the tile's own edge pixels (inside its box, next to it) are covered.
+        let c = [(r.x + r.w / 2) as u32, (r.y + 128 + r.h / 2) as u32];
+        assert_eq!(px(i, c[0], c[1])[3], 255);
+    }
+
+    #[test]
+    fn edge_fill_never_crosses_a_sector_border_and_scopes_agree() {
+        let mut m = Manifest::default();
+        sectors(&mut m, 64);
+        extend(&mut m, 16);
+        let red = img(10, 10, |_, _| [255, 0, 0, 255]);
+        m.tiles.push(tile(1, 50, -40, &red, 0)); // ends at x = 60, 4 px before the border at 64
+        let originals = HashMap::from([(1, red)]);
+        let sel = [Sector { u: 0, v: 0 }, Sector { u: 1, v: 0 }];
+        let set = export(&m, &sel, Scope::GroupSet, &originals);
+        let right = &set[1].1;
+        assert!(right.rgba.iter().all(|&b| b == 0), "no colour in 1002");
+        assert_eq!(px(&set[0].1, 63, 30), [255, 0, 0, 255], "1001 filled up to its border");
+        let sheet = &export(&m, &sel, Scope::GroupFile, &originals)[0].1;
+        for y in 0..64 {
+            for x in 0..64 {
+                assert_eq!(px(sheet, x, y), px(&set[0].1, x, y));
+                assert_eq!(px(sheet, 64 + x, y), px(right, x, y));
+            }
+        }
+    }
+
+    #[test]
+    fn empty_sector_stays_transparent_with_extend() {
+        let mut m = Manifest::default();
+        m.sector_size = 64;
+        extend(&mut m, 16);
+        let e = export(&m, &[Sector { u: 0, v: 0 }], Scope::Sector, &HashMap::new());
+        assert!(e[0].1.rgba.iter().all(|&b| b == 0));
+    }
+
+    /// Task 3.3 timings: `cargo test --release --lib -- --ignored --nocapture export_timings`.
+    #[test]
+    #[ignore]
+    fn export_timings() {
+        use std::time::Instant;
+        let mut m = Manifest::default();
+        m.sector_size = 4096;
+        m.add_sector(Sector { u: 0, v: 0 }, Side::Right).unwrap();
+        m.add_sector(Sector { u: 0, v: 0 }, Side::Up).unwrap();
+        m.add_sector(Sector { u: 1, v: 0 }, Side::Up).unwrap();
+        let mut originals = HashMap::new();
+        for k in 0..20u64 {
+            let o = noise(700, 450);
+            let mut t = tile(k + 1, 100 + (k as i64 % 5) * 780, -4000 + (k as i64 / 5) * 980, &o, 0);
+            if k % 4 == 0 {
+                t.frame.turn_to(17.0 + k as f64);
+            }
+            m.tiles.push(t);
+            originals.insert(k + 1, o);
+        }
+        let one = [Sector { u: 0, v: 0 }];
+        for fill in [Fill::Transparent, Fill::Extend] {
+            m.set_fill(fill, 16).unwrap();
+            let t0 = Instant::now();
+            export(&m, &one, Scope::Sector, &originals);
+            println!("SECTOR 4096, 20 tiles (5 tilted), {fill:?}: {:?}", t0.elapsed());
+        }
+        let t0 = Instant::now();
+        export(&m, &m.sectors.clone(), Scope::GroupFile, &originals);
+        println!("GROUP FILE 8192^2, Extend: {:?}", t0.elapsed());
+    }
+
+    #[test]
+    fn quarter_turns_stay_exact_through_frames() {
+        let o = noise(7, 3);
+        for rot in 0..4u8 {
+            let f = frame(0, 0, &o, rot);
+            assert_eq!(render_frame(&o, &f), rotate_exact(&o, rot), "rot {rot}");
+        }
     }
 
     #[test]

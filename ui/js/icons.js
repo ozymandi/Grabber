@@ -19,6 +19,27 @@ export const UPDATE_ICON = `<svg viewBox="0 0 1024 1024" fill="none" stroke="cur
     <polyline points="599.71 559.66 512 643.54 424.29 559.66"/>
 </svg>`;
 
+// Rotate cursor (add-atlas-fine-work): Lucide `rotate-cw` (lucide-static 1.72.0, ISC), paths
+// as published. A CSS cursor cannot read CSS variables, so the stroke is the literal --ink
+// (#ffffff) over a --bg (#1e1e1e) halo for contrast on any texture: a named deviation.
+const ROTATE_PATHS = ['M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8', 'M21 3v5h-5'];
+const rotateSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">${ROTATE_PATHS.map(
+    (d) => `<path d="${d}" stroke="#1e1e1e" stroke-width="4"/>`,
+).join('')}${ROTATE_PATHS.map((d) => `<path d="${d}" stroke="#ffffff" stroke-width="2"/>`).join('')}</svg>`;
+export const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(rotateSvg)}") 12 12, crosshair`;
+
+// Pivot marker: Lucide `crosshair` (lucide-static 1.72.0, ISC) geometry on its 24 grid, drawn
+// on the ATLAS canvas (stroke 2 on that grid, round caps).
+export const CROSSHAIR = {
+    circle: [12, 12, 10],
+    lines: [
+        [22, 12, 18, 12],
+        [6, 12, 2, 12],
+        [12, 6, 12, 2],
+        [12, 22, 12, 18],
+    ],
+};
+
 // Sector "+" glyph: Lucide `plus` (lucide-static 1.72.0, ISC), as published; only the fixed
 // width/height are dropped so the button sizes it. O'Tool has no plus glyph; the designer
 // chose Lucide for new icons.

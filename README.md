@@ -14,6 +14,7 @@ It works on its own, and it plugs into **ShareX**: capture a region with a hotke
 - Two output folders, for example a local folder and a Google Drive folder. Each can be switched on or off. Existing files are never overwritten.
 - Input from ShareX, the clipboard (Ctrl+V), drag and drop, or Open: PNG, JPEG, BMP, WebP.
 - **Atlas** (2.0): every texture you send can also land on an atlas, a grid of square power-of-two sectors in the UDIM layout. Arrange the tiles and export one sector, a sheet, or a numbered set `name.1001.png`, `name.1002.png`...
+- **Fine work** (2.1): UV-layout guides under the tiles, free rotation about a movable pivot, edge fill on export and undo.
 
 ## Requirements
 
@@ -122,7 +123,7 @@ A new tile goes into free space of the sector you selected last, keeping the wor
 
 ### Workspace
 
-A workspace is a `.ripper` file: the sectors, where each tile sits, and every original at full size. **NEW**, **OPEN**, **SAVE** and **SAVE AS** are in the **Workspace** panel. The workspace you opened last stays current, also for ShareX captures.
+A workspace is a `.ripper` file: the sectors, where each tile sits, every original at full size, the guides, and the guide and fill settings. Files saved by 2.1 need ripper 2.1 or later; 2.1 opens files from 2.0 as they were. **NEW**, **OPEN**, **SAVE** and **SAVE AS** are in the **Workspace** panel. The workspace you opened last stays current, also for ShareX captures.
 
 Every change is kept at once in `%APPDATA%\ripper\workspaces`, so closing the window loses nothing; a blue dot next to **Workspace** means the `.ripper` file is not saved yet.
 
@@ -133,8 +134,17 @@ All sectors of a workspace have one size: 512, 1024, 2048, 4096 or 8192. It can 
 - Click a sector to select it. **+** on its free sides adds a neighbour, flush, like UDIM tiles. **REMOVE** in the **Sector** panel deletes an empty sector.
 - Click a tile to select it, **Shift+click** to add more. Drag to move; a tile may lie across sector borders.
 - Drag a corner handle to scale a single tile; the size shows in the status row. Scaling always starts from the original, so making a tile small and large again loses nothing.
-- **R** rotates the selection a quarter turn clockwise, **Shift+R** counter-clockwise. **Delete** removes it. **Esc** clears the selection.
+- **R** rotates the selection a quarter turn clockwise, **Shift+R** counter-clockwise. Quarter turns never resample the pixels. **Delete** removes it. **Esc** clears the selection.
+- Drag just outside a corner of a single selected tile to rotate it freely; hold **Shift** for 15° steps. The status row shows the angle.
+- Every tile turns about its own **pivot**, the crosshair in its centre. **Alt+drag** moves it (it snaps to the corners, edge midpoints and centre), **Alt+double-click** puts it back in the centre, and **Alt+drag** on a corner handle scales about it. The pivot is saved with the tile.
+- **Ctrl+Z** undoes your own changes in this window (up to 100 steps), **Ctrl+Shift+Z** or **Ctrl+Y** redoes them. Tiles that arrive from ShareX or RIP are never undone, and settings such as padding, opacity or fill are not part of the history. If something was changed elsewhere in the meantime, the part that can no longer be undone is skipped and the status row says why.
 - Pan and zoom as in RIP: mouse wheel, Space+drag or middle drag, **F** to fit.
+
+### Guides
+
+Every sector shows a graph-paper grid: major lines every 1/8 of the sector, minor ones every 1/64.
+
+**LOAD...** in the **Guides** panel puts a UV-layout PNG (for example from Blender's *Export UV Layout*) on a sector, under the tiles. A file without a number goes onto the selected sector. A set named `name.1001.png`, `name.1002.png`, `name.1011.png`... goes to the sectors by number: 1001 is the bottom-left sector of the whole grid, and missing sectors are created. A guide is stretched to the sector; a non-square one is stretched too, with a warning. **REMOVE** clears the selected sector's guide. **Show** and **Opacity** apply to all guides of the workspace. Hold **G** to see every guide above the tiles in magenta. Guides and the grid are never exported.
 
 ### Export
 
@@ -146,7 +156,7 @@ Select the sectors to export (Shift+click for several; with none selected, the l
 | **GROUP FILE** | One sheet covering the selected sectors; unselected cells stay transparent. At most 16384 px per side |
 | **GROUP SET** | One PNG per sector, `name.1001.png`, `name.1002.png`, `name.1011.png`... |
 
-Numbers follow UDIM: 1001 is the bottom-left sector of the selection, +1 per column to the right, +10 per row up, at most 10 columns. Empty space is transparent. Existing files are never overwritten: the whole export gets `_2`, `_3` and so on, so a set keeps one name (`name_2.1001.png`).
+Numbers follow UDIM: 1001 is the bottom-left sector of the selection, +1 per column to the right, +10 per row up, at most 10 columns. **Fill** sets the empty space: **TRANSPARENT**, or **EXTEND**, which spreads the colour of the nearest tile up to **Edge, px** (16 by default) so mipmaps get no dark seams. Each sector is filled on its own, so colour never crosses a sector border and all three scopes give the same pixels. Existing files are never overwritten: the whole export gets `_2`, `_3` and so on, so a set keeps one name (`name_2.1001.png`).
 
 ## Troubleshooting
 

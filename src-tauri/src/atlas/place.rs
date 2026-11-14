@@ -84,10 +84,10 @@ pub fn place_new(m: &Manifest, w0: u32, h0: u32) -> Placement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atlas::model::{Provenance, Side, Tile};
+    use crate::atlas::model::{Frame, Provenance, Side, Tile};
 
     fn tile(id: u64, r: Rect) -> Tile {
-        Tile { id, item: format!("{id}.png"), w0: r.w as u32, h0: r.h as u32, x: r.x, y: r.y, w: r.w, h: r.h, rot: 0, source: Provenance::default() }
+        Tile { id, item: format!("{id}.png"), w0: r.w as u32, h0: r.h as u32, frame: Frame::from_rect(r), source: Provenance::default() }
     }
 
     fn add(m: &mut Manifest, p: Placement) {

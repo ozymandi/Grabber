@@ -5,7 +5,7 @@
 //! process and an open atlas window never overwrite each other. A `.ripper` file is a zip
 //! of the same content, written on SAVE.
 
-use super::model::{Manifest, Refused};
+use super::model::{parse_manifest, Manifest, ParseError, Refused};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -30,6 +30,8 @@ pub enum Error {
     Busy,
     Refused(String),
     Corrupt(String),
+    /// The file was written by a newer ripper format.
+    NewerFormat(u32),
 }
 
 impl std::fmt::Display for Error {
@@ -39,6 +41,7 @@ impl std::fmt::Display for Error {
             Error::Busy => write!(f, "the workspace is busy in another ripper window"),
             Error::Refused(m) => write!(f, "{m}"),
             Error::Corrupt(m) => write!(f, "the workspace file is damaged: {m}"),
+            Error::NewerFormat(n) => write!(f, "this file needs a newer ripper (workspace format {n})"),
         }
     }
 }
@@ -49,6 +52,15 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<ParseError> for Error {
+    fn from(e: ParseError) -> Self {
+        match e {
+            ParseError::Corrupt(m) => Error::Corrupt(m),
+            ParseError::Newer(n) => Error::NewerFormat(n),
+        }
+    }
+}
+
 impl From<Refused> for Error {
     fn from(r: Refused) -> Self {
         Error::Refused(r.0)
@@ -56,6 +68,10 @@ impl From<Refused> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Result of an undo or redo: the manifest, the inverse of what was applied, the skipped
+/// reasons and the items that left the manifest.
+pub type Steps = (Manifest, Vec<super::edit::Edit>, Vec<String>, Vec<String>);
 
 /// `%APPDATA%\ripper\workspaces`.
 pub fn default_root() -> PathBuf {
@@ -185,8 +201,14 @@ impl Store {
     }
 
     /// Writes the workspace to `path` as a `.ripper` zip and records it as saved. Items no
-    /// tile references are left out of the archive and removed from the working folder.
+    /// tile or guide references are left out of the archive and removed from the working folder.
     pub fn save_as(&self, ws: &Workspace, path: &Path) -> Result<Doc> {
+        self.save_as_keeping(ws, path, &std::collections::HashSet::new())
+    }
+
+    /// [`Store::save_as`] that leaves the items in `keep` in the working folder (they are still
+    /// referenced by this window's undo history) without packing them.
+    pub fn save_as_keeping(&self, ws: &Workspace, path: &Path, keep: &std::collections::HashSet<String>) -> Result<Doc> {
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled").to_string();
         let (manifest, ()) = ws.mutate(|m| {
             m.name = stem.clone();
@@ -194,11 +216,11 @@ impl Store {
         })?;
         let _guard = ws.lock()?;
         let manifest = ws.read().unwrap_or(manifest);
-        let used: std::collections::BTreeSet<&str> = manifest.tiles.iter().map(|t| t.item.as_str()).collect();
+        let used = manifest.items();
         for e in fs::read_dir(ws.dir.join(ITEMS))? {
             let e = e?;
             let name = e.file_name().to_string_lossy().to_string();
-            if !used.contains(name.as_str()) {
+            if !used.contains(name.as_str()) && !keep.contains(&name) {
                 let _ = fs::remove_file(e.path());
             }
         }
@@ -255,16 +277,16 @@ impl Store {
             let mut za = zip::ZipArchive::new(File::open(path)?).map_err(|e| Error::Corrupt(e.to_string()))?;
             let mut text = String::new();
             za.by_name(MANIFEST).map_err(|e| Error::Corrupt(e.to_string()))?.read_to_string(&mut text)?;
-            let m: Manifest = serde_json::from_str(&text).map_err(|e| Error::Corrupt(e.to_string()))?;
-            for t in &m.tiles {
-                if !safe_name(&t.item) {
-                    return Err(Error::Corrupt(format!("bad item name {:?}", t.item)));
+            let m = parse_manifest(&text)?;
+            for item in m.items() {
+                if !safe_name(item) {
+                    return Err(Error::Corrupt(format!("bad item name {item:?}")));
                 }
                 let mut bytes = Vec::new();
-                za.by_name(&format!("{ITEMS}/{}", t.item))
-                    .map_err(|e| Error::Corrupt(format!("{}: {e}", t.item)))?
+                za.by_name(&format!("{ITEMS}/{item}"))
+                    .map_err(|e| Error::Corrupt(format!("{item}: {e}")))?
                     .read_to_end(&mut bytes)?;
-                write_atomic(&ws.item_path(&t.item), &bytes)?;
+                write_atomic(&ws.item_path(item), &bytes)?;
             }
             write_atomic(&ws.dir.join(MANIFEST), text.as_bytes())?;
             Ok(m)
@@ -317,7 +339,7 @@ impl Workspace {
 
     pub fn read(&self) -> Result<Manifest> {
         let text = fs::read_to_string(self.dir.join(MANIFEST))?;
-        serde_json::from_str(&text).map_err(|e| Error::Corrupt(e.to_string()))
+        Ok(parse_manifest(&text)?)
     }
 
     /// The manifest's revision, read cheaply for change polling.
@@ -382,11 +404,7 @@ impl Workspace {
                 item: item.clone(),
                 w0,
                 h0,
-                x: p.rect.x,
-                y: p.rect.y,
-                w: p.rect.w,
-                h: p.rect.h,
-                rot: 0,
+                frame: super::model::Frame::from_rect(p.rect),
                 source,
             });
             Ok(p)
@@ -395,6 +413,68 @@ impl Workspace {
             let _ = fs::remove_file(self.item_path(&item));
         }
         r
+    }
+
+    /// Applies one forward edit under the lock; a refusal writes nothing.
+    pub fn edit(&self, e: super::edit::Edit) -> Result<(Manifest, super::edit::Applied)> {
+        self.mutate(|m| super::edit::apply(m, e))
+    }
+
+    /// Undo or redo (design D6): applies `edits` best effort under one lock. Edits that would
+    /// bring back an original no longer on disk are skipped up front. Returns the manifest, the
+    /// inverse of what was applied, the skipped reasons and the items that left the manifest.
+    pub fn apply_steps(&self, edits: Vec<super::edit::Edit>) -> Result<Steps> {
+        use super::edit::Edit;
+        let mut skipped = Vec::new();
+        let edits: Vec<Edit> = edits
+            .into_iter()
+            .filter(|e| {
+                let (item, what) = match e {
+                    Edit::RestoreTile { tile, .. } => (&tile.item, format!("the original of tile {} is gone", tile.id)),
+                    Edit::SetGuide { guide: Some(g), .. } => (&g.item, "the guide image is gone".to_string()),
+                    _ => return true,
+                };
+                let ok = self.item_path(item).is_file();
+                if !ok {
+                    skipped.push(what);
+                }
+                ok
+            })
+            .collect();
+        let (m, (inverse, more, released)) = self.mutate(|m| Ok(super::edit::apply_steps(m, edits)))?;
+        skipped.extend(more);
+        Ok((m, inverse, skipped, released))
+    }
+
+    /// Loads guide images (design D4): `files` are (file name, PNG bytes). Each image is
+    /// stored as an item first, then all are placed under the lock. Items of a refused load
+    /// are removed again.
+    pub fn load_guides(&self, files: &[(String, Vec<u8>)], target: Option<super::model::Sector>) -> Result<(Manifest, super::model::GuideReport)> {
+        use super::model::{udim_in_name, GuideTarget};
+        let mut loads = Vec::new();
+        let mut written = Vec::new();
+        let result = (|| -> Result<(Manifest, super::model::GuideReport)> {
+            for (name, bytes) in files {
+                let (w, h) = image::ImageReader::new(io::Cursor::new(bytes))
+                    .with_guessed_format()?
+                    .into_dimensions()
+                    .map_err(|e| Error::Refused(format!("{name} is not a readable image: {e}")))?;
+                let t = match udim_in_name(name) {
+                    Some(n) => GuideTarget::Udim(n),
+                    None => GuideTarget::Single(target),
+                };
+                let item = self.add_item(bytes)?;
+                written.push(item.clone());
+                loads.push((t, item, w, h));
+            }
+            self.mutate(|m| m.place_guides(&loads))
+        })();
+        if result.is_err() {
+            for item in written {
+                let _ = fs::remove_file(self.item_path(&item));
+            }
+        }
+        result
     }
 
     /// Stores a new original and returns its item name. Called before the manifest that
@@ -410,7 +490,7 @@ impl Workspace {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::atlas::model::{Provenance, Tile};
+    use crate::atlas::model::{Frame, Provenance, Rect, Tile};
 
     pub fn temp_store(tag: &str) -> Store {
         let root = std::env::temp_dir().join(format!("ripper-atlas-test-{tag}-{}", unique("")));
@@ -421,7 +501,7 @@ pub(crate) mod tests {
     pub fn push_tile(m: &mut Manifest, item: &str, x: i64, y: i64, w: i64, h: i64) -> u64 {
         let id = m.next_id;
         m.next_id += 1;
-        m.tiles.push(Tile { id, item: item.into(), w0: w as u32, h0: h as u32, x, y, w, h, rot: 0, source: Provenance::default() });
+        m.tiles.push(Tile { id, item: item.into(), w0: w as u32, h0: h as u32, frame: Frame::from_rect(Rect { x, y, w, h }), source: Provenance::default() });
         id
     }
 
@@ -569,7 +649,7 @@ pub(crate) mod tests {
         assert!(p.fitted);
         let t = &m.tiles[0];
         assert_eq!((t.w0, t.h0), (1500, 900));
-        assert_eq!((t.w, t.h), (1008, 604));
+        assert_eq!((t.frame.w, t.frame.h), (1008, 604));
         assert_eq!(t.source.quad, 2);
         assert_eq!(fs::read(ws.item_path(&t.item)).unwrap(), b"png");
         let _ = fs::remove_dir_all(&store.root);
@@ -582,6 +662,118 @@ pub(crate) mod tests {
         let bad = store.root.join("bad.ripper");
         fs::write(&bad, b"not a zip").unwrap();
         assert!(matches!(store.open(&bad), Err(Error::Corrupt(_))));
+        let _ = fs::remove_dir_all(&store.root);
+    }
+
+    fn zip_with(path: &Path, manifest: &str, items: &[(&str, &[u8])]) {
+        let mut zw = zip::ZipWriter::new(File::create(path).unwrap());
+        let o = zip::write::SimpleFileOptions::default();
+        zw.start_file(MANIFEST, o).unwrap();
+        zw.write_all(manifest.as_bytes()).unwrap();
+        for (name, bytes) in items {
+            zw.start_file(format!("{ITEMS}/{name}"), o).unwrap();
+            zw.write_all(bytes).unwrap();
+        }
+        zw.finish().unwrap();
+    }
+
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        image::RgbaImage::from_pixel(w, h, image::Rgba([255, 255, 255, 128]))
+            .write_to(&mut io::Cursor::new(&mut v), image::ImageFormat::Png)
+            .unwrap();
+        v
+    }
+
+    #[test]
+    fn guides_travel_with_the_file() {
+        use super::super::model::{Fill, Sector};
+        let store = temp_store("guides");
+        let ws = store.create().unwrap();
+        let (m, rep) = ws
+            .load_guides(&[("body.1001.png".into(), png(16, 16)), ("body.1002.png".into(), png(32, 16))], None)
+            .unwrap();
+        assert_eq!((rep.loaded, rep.created.len(), rep.not_square), (2, 1, 1));
+        assert_eq!(m.guides.len(), 2);
+        ws.mutate(|m| {
+            m.set_guide_view(Some(false), Some(30))?;
+            m.set_fill(Fill::Extend, 32)
+        })
+        .unwrap();
+        let f = store.root.join("cafe.ripper");
+        store.save_as(&ws, &f).unwrap();
+        let fresh = store.create().unwrap();
+        assert!(fresh.read().unwrap().guides.is_empty());
+        // Opening the file from a different store mimics another machine.
+        let other = temp_store("guides-other");
+        let opened = other.open(&f).unwrap();
+        let m = opened.read().unwrap();
+        assert_eq!(m.guides.len(), 2);
+        assert_eq!(m.guide(Sector { u: 1, v: 0 }).unwrap().w, 32);
+        for g in &m.guides {
+            assert!(opened.item_path(&g.item).is_file(), "guide image unpacked");
+        }
+        assert_eq!((m.guide_show, m.guide_opacity, m.fill, m.edge), (false, 30, Fill::Extend, 32));
+        let _ = fs::remove_dir_all(&store.root);
+        let _ = fs::remove_dir_all(&other.root);
+    }
+
+    #[test]
+    fn refused_guide_load_leaves_no_items() {
+        let store = temp_store("guides-refused");
+        let ws = store.create().unwrap();
+        let r = ws.load_guides(&[("a.png".into(), png(4, 4)), ("b.png".into(), png(4, 4))], None);
+        assert!(matches!(r, Err(Error::Refused(_))));
+        assert_eq!(fs::read_dir(ws.dir.join(ITEMS)).map(|d| d.count()).unwrap_or(0), 0);
+        let r = ws.load_guides(&[("c.png".into(), b"not an image".to_vec())], None);
+        assert!(r.is_err());
+        let _ = fs::remove_dir_all(&store.root);
+    }
+
+    #[test]
+    fn held_items_survive_save_but_are_not_packed() {
+        let store = temp_store("held");
+        let ws = store.create().unwrap();
+        let item = ws.add_item(b"gone").unwrap();
+        let f = store.root.join("held.ripper");
+        let keep = std::collections::HashSet::from([item.clone()]);
+        store.save_as_keeping(&ws, &f, &keep).unwrap();
+        assert!(ws.item_path(&item).is_file(), "held item stays on disk");
+        let za = zip::ZipArchive::new(File::open(&f).unwrap()).unwrap();
+        assert!(!za.file_names().any(|n| n.map(|n| n.contains(&item)).unwrap_or(false)), "held item is not packed");
+        store.save_as(&ws, &f).unwrap();
+        assert!(!ws.item_path(&item).is_file(), "released item is purged");
+        let _ = fs::remove_dir_all(&store.root);
+    }
+
+    #[test]
+    fn newer_format_file_is_refused_and_leaves_nothing_behind() {
+        let store = temp_store("newer");
+        fs::create_dir_all(&store.root).unwrap();
+        let before: Vec<_> = fs::read_dir(&store.root).unwrap().collect();
+        let f = store.root.join("future.ripper");
+        zip_with(&f, r#"{"format":3,"revision":1,"name":"future","sector_size":1024,"padding":8,"sectors":[],"active":null,"tiles":[],"next_id":1}"#, &[]);
+        assert!(matches!(store.open(&f), Err(Error::NewerFormat(3))));
+        let after: Vec<_> = fs::read_dir(&store.root).unwrap().filter_map(|e| e.ok()).filter(|e| e.path() != f).collect();
+        assert_eq!(after.len(), before.len(), "no working folder left behind");
+        let _ = fs::remove_dir_all(&store.root);
+    }
+
+    #[test]
+    fn format_one_file_opens_with_the_same_placement() {
+        let store = temp_store("v1");
+        fs::create_dir_all(&store.root).unwrap();
+        let f = store.root.join("cafe.ripper");
+        let v1 = r#"{"format":1,"revision":2,"name":"cafe","sector_size":1024,"padding":8,"sectors":[{"u":0,"v":0}],"active":null,"next_id":3,
+            "tiles":[{"id":1,"item":"a.png","w0":40,"h0":20,"x":10,"y":-500,"w":40,"h":20,"rot":0},
+                     {"id":2,"item":"b.png","w0":5,"h0":2,"x":7,"y":-33,"w":2,"h":5,"rot":3}]}"#;
+        zip_with(&f, v1, &[("a.png", b"a"), ("b.png", b"b")]);
+        let ws = store.open(&f).unwrap();
+        let m = ws.read().unwrap();
+        assert_eq!(m.format, super::super::model::FORMAT);
+        assert_eq!(m.tiles[0].rect(), Rect { x: 10, y: -500, w: 40, h: 20 });
+        assert_eq!(m.tiles[1].rect(), Rect { x: 7, y: -33, w: 2, h: 5 });
+        assert_eq!(m.tiles[1].frame.rot, 3);
         let _ = fs::remove_dir_all(&store.root);
     }
 }

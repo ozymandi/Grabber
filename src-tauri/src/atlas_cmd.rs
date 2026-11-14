@@ -3,12 +3,12 @@
 //! resulting document, so the page never holds authoritative state (design D3).
 
 use crate::AppState;
-use ripper_core::atlas::model::{Corner, Refused, Sector, Side};
+use ripper_core::atlas::edit::{undo_guide_load, Edit};
+use ripper_core::atlas::model::Sector;
 use ripper_core::atlas::render::Scope;
 use ripper_core::atlas::store::{Doc, Error, Workspace};
 use ripper_core::atlas::files;
 use ripper_core::settings;
-use serde::Deserialize;
 use std::path::PathBuf;
 use tauri::{async_runtime, State};
 
@@ -59,6 +59,7 @@ pub fn atlas_revision(state: State<'_, AppState>) -> Result<u64, String> {
 #[tauri::command]
 pub async fn atlas_new(state: State<'_, AppState>) -> Result<Doc, String> {
     let ws = state.store.create().map_err(err)?;
+    state.held.lock().unwrap().clear();
     state.set_current(&ws);
     state.store.doc(&ws).map_err(err)
 }
@@ -70,6 +71,7 @@ pub async fn atlas_open(path: String, state: State<'_, AppState>) -> Result<Doc,
         .await
         .map_err(|e| e.to_string())?
         .map_err(err)?;
+    state.held.lock().unwrap().clear();
     state.set_current(&ws);
     state.store.doc(&ws).map_err(err)
 }
@@ -81,7 +83,8 @@ pub async fn atlas_save(state: State<'_, AppState>) -> Result<Option<Doc>, Strin
     let ws = state.current_workspace().map_err(err)?;
     let Some(file) = state.store.entry(&ws.id).file else { return Ok(None) };
     let store = state.store.clone();
-    async_runtime::spawn_blocking(move || store.save_as(&ws, &PathBuf::from(file)))
+    let keep = state.held.lock().unwrap().clone();
+    async_runtime::spawn_blocking(move || store.save_as_keeping(&ws, &PathBuf::from(file), &keep))
         .await
         .map_err(|e| e.to_string())?
         .map(Some)
@@ -92,25 +95,11 @@ pub async fn atlas_save(state: State<'_, AppState>) -> Result<Option<Doc>, Strin
 pub async fn atlas_save_as(path: String, state: State<'_, AppState>) -> Result<Doc, String> {
     let ws = state.current_workspace().map_err(err)?;
     let store = state.store.clone();
-    async_runtime::spawn_blocking(move || store.save_as(&ws, &PathBuf::from(path)))
+    let keep = state.held.lock().unwrap().clone();
+    async_runtime::spawn_blocking(move || store.save_as_keeping(&ws, &PathBuf::from(path), &keep))
         .await
         .map_err(|e| e.to_string())?
         .map_err(err)
-}
-
-/// One edit of the current workspace.
-#[derive(Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum Edit {
-    SetSize { size: u32 },
-    SetPadding { padding: u32 },
-    AddSector { sector: Sector, side: Side },
-    RemoveSector { sector: Sector },
-    SetActive { sector: Sector },
-    Move { moves: Vec<(u64, i64, i64)> },
-    Scale { id: u64, w: i64, anchor: Corner },
-    Rotate { ids: Vec<u64>, clockwise: bool },
-    Delete { ids: Vec<u64> },
 }
 
 #[derive(serde::Serialize)]
@@ -118,31 +107,90 @@ pub struct EditResult {
     pub doc: Doc,
     /// Tiles removed by a Delete.
     pub removed: usize,
+    /// Edits that undo this one; empty for settings, which are not part of the history.
+    pub inverse: Vec<Edit>,
+    pub label: String,
+}
+
+impl AppState {
+    fn hold(&self, items: Vec<String>) {
+        self.held.lock().unwrap().extend(items);
+    }
 }
 
 #[tauri::command]
 pub async fn atlas_edit(edit: Edit, state: State<'_, AppState>) -> Result<EditResult, String> {
     let ws = state.current_workspace().map_err(err)?;
-    let (_, removed) = async_runtime::spawn_blocking(move || {
-        ws.mutate(|m| -> Result<usize, Refused> {
-            Ok(match edit {
-                Edit::SetSize { size } => m.set_sector_size(size).map(|_| 0)?,
-                Edit::SetPadding { padding } => m.set_padding(padding).map(|_| 0)?,
-                Edit::AddSector { sector, side } => m.add_sector(sector, side).map(|_| 0)?,
-                Edit::RemoveSector { sector } => m.remove_sector(sector).map(|_| 0)?,
-                Edit::SetActive { sector } => m.set_active(sector).map(|_| 0)?,
-                Edit::Move { moves } => m.move_tiles(&moves).map(|_| 0)?,
-                Edit::Scale { id, w, anchor } => m.scale_tile(id, w, anchor).map(|_| 0)?,
-                Edit::Rotate { ids, clockwise } => m.rotate_tiles(&ids, clockwise).map(|_| 0)?,
-                Edit::Delete { ids } => m.delete_tiles(&ids),
-            })
-        })
+    let w = ws.clone();
+    let (_, a) = async_runtime::spawn_blocking(move || w.edit(edit))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
+    state.hold(a.released);
+    Ok(EditResult { doc: state.store.doc(&ws).map_err(err)?, removed: a.removed, inverse: a.inverse, label: a.label })
+}
+
+#[derive(serde::Serialize)]
+pub struct StepsResult {
+    pub doc: Doc,
+    /// The edits that reverse what was applied (the redo of an undo, and the other way round).
+    pub inverse: Vec<Edit>,
+    /// Why parts of the step could not be applied.
+    pub skipped: Vec<String>,
+}
+
+/// Undo and redo: applies a step best effort (design D6 of add-atlas-fine-work).
+#[tauri::command]
+pub async fn atlas_apply_steps(edits: Vec<Edit>, state: State<'_, AppState>) -> Result<StepsResult, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    let w = ws.clone();
+    let (_, inverse, skipped, released) = async_runtime::spawn_blocking(move || w.apply_steps(edits))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
+    state.hold(released);
+    Ok(StepsResult { doc: state.store.doc(&ws).map_err(err)?, inverse, skipped })
+}
+
+#[derive(serde::Serialize)]
+pub struct GuidesResult {
+    pub doc: Doc,
+    pub loaded: usize,
+    pub created: usize,
+    pub not_square: usize,
+    pub inverse: Vec<Edit>,
+    pub label: String,
+}
+
+/// LOAD in the Guides panel: reads the chosen PNGs and places them (design D4).
+#[tauri::command]
+pub async fn atlas_load_guides(paths: Vec<String>, target: Option<Sector>, state: State<'_, AppState>) -> Result<GuidesResult, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    let w = ws.clone();
+    let (_, rep) = async_runtime::spawn_blocking(move || {
+        let mut files = Vec::new();
+        for p in &paths {
+            let path = PathBuf::from(p);
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let bytes = std::fs::read(&path).map_err(|e| Error::Refused(format!("{name}: {e}")))?;
+            files.push((name, bytes));
+        }
+        w.load_guides(&files, target)
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(err)?;
-    let ws = state.current_workspace().map_err(err)?;
-    Ok(EditResult { doc: state.store.doc(&ws).map_err(err)?, removed })
+    let released: Vec<String> = rep.replaced.iter().filter_map(|(_, g)| g.as_ref().map(|g| g.item.clone())).collect();
+    state.hold(released);
+    let label = if rep.loaded == 1 { "load guide".to_string() } else { format!("load {} guides", rep.loaded) };
+    Ok(GuidesResult {
+        doc: state.store.doc(&ws).map_err(err)?,
+        loaded: rep.loaded,
+        created: rep.created.len(),
+        not_square: rep.not_square,
+        inverse: undo_guide_load(&rep.replaced, &rep.created),
+        label,
+    })
 }
 
 #[tauri::command]

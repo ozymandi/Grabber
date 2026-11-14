@@ -63,13 +63,14 @@ impl Rgba<'_> {
 
 /// Sub-sample counts along the output x and y axes at output point `(u, v)`.
 #[inline]
-fn footprint(m: &Mat3, u: f64, v: f64) -> (u32, u32) {
+fn footprint(m: &Mat3, u: f64, v: f64, min_sub: u32) -> (u32, u32) {
     let x = m[0][0] * u + m[0][1] * v + m[0][2];
     let y = m[1][0] * u + m[1][1] * v + m[1][2];
     let w = m[2][0] * u + m[2][1] * v + m[2][2];
     if w.abs() < 1e-12 {
         return (MAX_SUB, MAX_SUB);
     }
+    let lo = min_sub.clamp(1, MAX_SUB);
     let (px, py) = (x / w, y / w);
     // Partial derivatives of the projected point with respect to u and v.
     let dxu = (m[0][0] - px * m[2][0]) / w;
@@ -80,7 +81,7 @@ fn footprint(m: &Mat3, u: f64, v: f64) -> (u32, u32) {
     let lv = (dxv * dxv + dyv * dyv).sqrt();
     let n = |l: f64| -> u32 {
         if l.is_finite() {
-            (l.ceil() as u32).clamp(1, MAX_SUB)
+            (l.ceil() as u32).clamp(lo, MAX_SUB)
         } else {
             MAX_SUB
         }
@@ -91,12 +92,18 @@ fn footprint(m: &Mat3, u: f64, v: f64) -> (u32, u32) {
 /// Unwarps a quad (clockwise corners, see [`geom::clockwise`]) into a `out_w x out_h`
 /// straight-alpha RGBA8 image. Returns `None` if the quad has no projective map.
 pub fn warp(src: &Rgba, corners: &[Pt; 4], out_w: u32, out_h: u32) -> Option<Vec<u8>> {
+    warp_sub(src, corners, out_w, out_h, 1)
+}
+
+/// [`warp`] with at least `min_sub x min_sub` sub-samples per output pixel, so edges that cut
+/// through output pixels (a tilted atlas tile at scale 1) get smooth partial coverage.
+pub fn warp_sub(src: &Rgba, corners: &[Pt; 4], out_w: u32, out_h: u32, min_sub: u32) -> Option<Vec<u8>> {
     let m = geom::output_to_source(corners, out_w, out_h)?;
     let (ow, oh) = (out_w as usize, out_h as usize);
     let mut out = vec![0u8; ow * oh * 4];
     out.par_chunks_mut(ow * 4).enumerate().for_each(|(y, row)| {
         for x in 0..ow {
-            let (nu, nv) = footprint(&m, x as f64 + 0.5, y as f64 + 0.5);
+            let (nu, nv) = footprint(&m, x as f64 + 0.5, y as f64 + 0.5, min_sub);
             let mut acc = [0.0f32; 4];
             for j in 0..nv {
                 let v = y as f64 + (j as f64 + 0.5) / nv as f64;
@@ -211,12 +218,12 @@ mod tests {
     fn footprint_counts_follow_scale() {
         // Output 4x smaller than the quad along x, same size along y.
         let m = geom::output_to_source(&rect(0.0, 0.0, 400.0, 100.0), 100, 100).unwrap();
-        assert_eq!(footprint(&m, 50.0, 50.0), (4, 1));
+        assert_eq!(footprint(&m, 50.0, 50.0, 1), (4, 1));
         // Enlargement never asks for more than one sample.
         let m = geom::output_to_source(&rect(0.0, 0.0, 10.0, 10.0), 100, 100).unwrap();
-        assert_eq!(footprint(&m, 50.0, 50.0), (1, 1));
+        assert_eq!(footprint(&m, 50.0, 50.0, 1), (1, 1));
         // Extreme shrink is capped.
         let m = geom::output_to_source(&rect(0.0, 0.0, 10_000.0, 10.0), 10, 10).unwrap();
-        assert_eq!(footprint(&m, 5.0, 5.0), (MAX_SUB, 1));
+        assert_eq!(footprint(&m, 5.0, 5.0, 1), (MAX_SUB, 1));
     }
 }

@@ -45,7 +45,7 @@ pub fn export(ws: &Workspace, selected: &[Sector], scope: Scope, dir: &Path, bas
     for o in &outputs {
         let mut load = |t: &Tile| load_original(ws, t);
         let img = render::render_area(&m, (o.area.x, o.area.y), o.area.w as u32, o.area.h as u32, &o.cells, &mut load)
-            .map_err(|e| Error::Corrupt(e))?;
+            .map_err(Error::Corrupt)?;
         let path = dir.join(format!("{stem}{}", o.tail));
         let mut f = OpenOptions::new().write(true).create_new(true).open(&path)?;
         f.write_all(&encode_png(&img))?;
