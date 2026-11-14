@@ -61,6 +61,7 @@ fn get_settings(state: State<'_, AppState>) -> SettingsInfo {
 fn set_settings(mut settings: Settings, state: State<'_, AppState>) -> Result<(), String> {
     let mut cur = state.settings.lock().unwrap();
     settings.window = cur.window;
+    settings.maximized = cur.maximized;
     // The current workspace is owned by the atlas commands; a page copy may be stale.
     settings.current_workspace = cur.current_workspace.clone();
     *cur = settings;
@@ -255,12 +256,46 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
 /// Stores the main window's logical size in the settings file.
 pub(crate) fn remember_window(app: &AppHandle) {
     let Some(w) = app.get_webview_window("main") else { return };
-    let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) else { return };
-    let logical = size.to_logical::<f64>(scale);
+    if w.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let maximized = w.is_maximized().unwrap_or(false);
     let state = app.state::<AppState>();
     let mut s = state.settings.lock().unwrap();
-    s.window = Some([logical.width.round() as u32, logical.height.round() as u32]);
+    s.maximized = maximized;
+    // A maximized window keeps the last normal size, so restoring it later looks right.
+    if !maximized {
+        let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) else { return };
+        let logical = size.to_logical::<f64>(scale);
+        s.window = Some([logical.width.round() as u32, logical.height.round() as u32]);
+    }
     let _ = settings::save(&state.settings_path, &s);
+}
+
+/// Sizes the still hidden window from the settings so it fits its monitor's work area, centres
+/// it there and maximizes it if it was maximized. tao applies the maximize only when the window
+/// is shown, so there is no flash.
+fn place_window(win: &tauri::WebviewWindow, saved: Option<[u32; 2]>, maximized: bool) {
+    let monitor = win.current_monitor().ok().flatten().or_else(|| win.primary_monitor().ok().flatten());
+    let Some(mon) = monitor else { return };
+    let scale = mon.scale_factor();
+    let wa = *mon.work_area();
+    let (Ok(inner), Ok(outer)) = (win.inner_size(), win.outer_size()) else { return };
+    let frame = [
+        outer.width.saturating_sub(inner.width) as f64 / scale,
+        outer.height.saturating_sub(inner.height) as f64 / scale,
+    ];
+    let work = [wa.size.width as f64 / scale, wa.size.height as f64 / scale];
+    let [w, h] = settings::fit_window(saved, [1440.0, 900.0], work, frame);
+    let _ = win.set_size(tauri::LogicalSize::new(w, h));
+    if let Ok(outer) = win.outer_size() {
+        let x = wa.position.x + (wa.size.width.saturating_sub(outer.width) / 2) as i32;
+        let y = wa.position.y + (wa.size.height.saturating_sub(outer.height) / 2) as i32;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    if maximized {
+        let _ = win.maximize();
+    }
 }
 
 /// Closes the app (Esc, or after a successful send in ShareX mode).
@@ -392,7 +427,7 @@ fn main() {
 
     let settings_path = settings::default_path();
     let (settings, settings_warning) = settings::load(&settings_path);
-    let window_size = settings.window;
+    let (window_size, maximized) = (settings.window, settings.maximized);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -415,11 +450,8 @@ fn main() {
             }
         })
         .setup(move |app| {
-            if let (Some([w, h]), Some(win)) = (window_size, app.get_webview_window("main")) {
-                if w >= 900 && h >= 600 {
-                    let _ = win.set_size(tauri::LogicalSize::new(w as f64, h as f64));
-                    let _ = win.center();
-                }
+            if let Some(win) = app.get_webview_window("main") {
+                place_window(&win, window_size, maximized);
             }
             // The UI shows the window after its first paint. If the page fails to load,
             // show it anyway so a ShareX task is never left waiting on an invisible window.

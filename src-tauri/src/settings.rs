@@ -16,8 +16,10 @@ pub struct Settings {
     /// Custom ratio terms `[w, h]`.
     pub aspect_custom: [f64; 2],
     pub pot: bool,
-    /// Last window inner size in logical pixels.
+    /// Last normal (not maximized) window inner size in logical pixels.
     pub window: Option<[u32; 2]>,
+    /// The window was maximized when it closed; it opens maximized again.
+    pub maximized: bool,
     /// Atlas output on: Send and Save All also add tiles to the current workspace.
     pub atlas_on: bool,
     /// Working-folder id of the current atlas workspace; empty until one is created.
@@ -35,6 +37,7 @@ impl Default for Settings {
             aspect_custom: [1.0, 1.0],
             pot: false,
             window: None,
+            maximized: false,
             atlas_on: false,
             current_workspace: String::new(),
         }
@@ -102,6 +105,24 @@ pub fn save(path: &Path, s: &Settings) -> io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// Smallest window inner size, as in tauri.conf.json.
+pub const MIN_WINDOW: [f64; 2] = [900.0, 600.0];
+
+/// Inner size for a window opened on a work area of `work` (logical pixels) whose frame adds
+/// `frame` (outer minus inner). The saved size is used when it is at least the minimum,
+/// otherwise `default`; either is shrunk so the whole window fits the work area, so its title
+/// bar never leaves the screen and its bottom never hides under the taskbar.
+pub fn fit_window(saved: Option<[u32; 2]>, default: [f64; 2], work: [f64; 2], frame: [f64; 2]) -> [f64; 2] {
+    let want = match saved {
+        Some([w, h]) if w as f64 >= MIN_WINDOW[0] && h as f64 >= MIN_WINDOW[1] => [w as f64, h as f64],
+        _ => default,
+    };
+    [
+        want[0].min(work[0] - frame[0]).max(1.0).floor(),
+        want[1].min(work[1] - frame[1]).max(1.0).floor(),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,6 +146,7 @@ mod tests {
             aspect_custom: [3.0, 1.0],
             pot: true,
             window: Some([1440, 900]),
+            maximized: true,
             atlas_on: true,
             current_workspace: "w18f0-1a-0".into(),
         };
@@ -180,6 +202,22 @@ window = [2194, 1211]
         assert!(!s.atlas_on);
         assert_eq!(s.current_workspace, "");
         assert_eq!(s.window, Some([2194, 1211]));
+        assert!(!s.maximized, "configs before 2.1.1 open as a normal window");
+    }
+
+    #[test]
+    fn window_fits_the_work_area() {
+        // 3840 x 2076 work area at 175 %: 2194.3 x 1186.3 logical; Windows 11 frame 14 x 46.
+        let work = [3840.0 / 1.75, 2076.0 / 1.75];
+        let frame = [14.0, 46.0];
+        let [w, h] = fit_window(Some([2194, 1211]), [1440.0, 900.0], work, frame);
+        assert!(w + frame[0] <= work[0] && h + frame[1] <= work[1], "{w} x {h}");
+        assert_eq!(fit_window(Some([1600, 1000]), [1440.0, 900.0], work, frame), [1600.0, 1000.0], "a size that fits is kept");
+        assert_eq!(fit_window(None, [1440.0, 900.0], work, frame), [1440.0, 900.0]);
+        assert_eq!(fit_window(Some([300, 200]), [1440.0, 900.0], work, frame), [1440.0, 900.0], "tiny sizes are ignored");
+        // A small screen shrinks even the default.
+        let [w, h] = fit_window(None, [1440.0, 900.0], [1280.0, 680.0], frame);
+        assert_eq!([w, h], [1266.0, 634.0]);
     }
 
     #[test]

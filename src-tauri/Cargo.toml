@@ -1,6 +1,6 @@
 [package]
 name = "ripper"
-version = "2.1.0"
+version = "2.1.1"
 description = "Grab perspective quads from any image and flatten them into frontal textures"
 edition = "2021"
 rust-version = "1.80"
