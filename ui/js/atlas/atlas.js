@@ -301,8 +301,10 @@ export function atlasKey(e) {
         e.preventDefault();
         if (canvas.selTiles.size) edit({ op: 'delete', ids: selectedTiles() });
     } else if (e.key === 'Escape') {
-        // In ATLAS, Esc only clears the selection; it never closes the app.
+        // In ATLAS, Esc only clears the selection; it never closes the app. During a
+        // frame drag it cancels the frame instead.
         e.preventDefault();
+        if (canvas.cancelMarquee()) return;
         canvas.selTiles.clear();
         canvas.selSectors = [];
         canvas.request();

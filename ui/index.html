@@ -276,7 +276,7 @@
                 </section>
                 <section class="help-card">
                     <h3>6. Atlas</h3>
-                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag tiles, scale them by a corner, rotate with R or by dragging just outside a corner (Shift snaps to 15 degrees). Each tile turns about its pivot: Alt+drag moves it, Alt+double-click puts it back in the centre, Alt+corner scales about it. Guides LOAD puts a UV-layout PNG under the tiles of a sector; a name.1001.png set goes to sectors by number. Hold G to see the guides above the tiles in magenta. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...); Fill EXTEND spreads the tile edges by Edge px. Ctrl+Z undoes your own changes. SAVE keeps everything in a .ripper file.</p>
+                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag on empty canvas to select the tiles a frame touches (Shift adds). Drag tiles; they snap to sector borders, other tiles (flush or at the padding) and the grid, and Ctrl+drag moves without snapping. Scale them by a corner, rotate with R or by dragging just outside a corner (Shift snaps to 15 degrees). Each tile turns about its pivot: Alt+drag moves it, Alt+double-click puts it back in the centre, Alt+corner scales about it. Guides LOAD puts a UV-layout PNG under the tiles of a sector; a name.1001.png set goes to sectors by number. Hold G to see the guides above the tiles in magenta. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...); Fill EXTEND spreads the tile edges by Edge px. Ctrl+Z undoes your own changes. SAVE keeps everything in a .ripper file.</p>
                 </section>
                 <section class="help-card">
                     <h3>Shortcuts</h3>
@@ -295,6 +295,9 @@
                         <dt>ATLAS</dt><dd></dd>
                         <dt>R / Shift+R</dt><dd>Rotate the selected tiles by 90 degrees</dd>
                         <dt>Drag outside a corner</dt><dd>Rotate freely, Shift for 15 degree steps</dd>
+                        <dt>Drag on empty canvas</dt><dd>Select by frame</dd>
+                        <dt>Shift+drag on empty canvas</dt><dd>Add to the selection by frame</dd>
+                        <dt>Ctrl+drag</dt><dd>Move without snapping</dd>
                         <dt>Alt+drag / Alt+double-click</dt><dd>Move / reset the pivot</dd>
                         <dt>Alt+corner</dt><dd>Scale about the pivot</dd>
                         <dt>Hold G</dt><dd>Guides above the tiles in magenta</dd>

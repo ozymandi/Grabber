@@ -6,14 +6,18 @@
 
 import { PLUS_ICON, ROTATE_CURSOR, CROSSHAIR } from '../icons.js';
 import * as F from './frame.js';
+import * as Snap from './snap.js';
+import * as Marquee from './marquee.js';
 
 const HANDLE = 6; // half size of a corner handle, screen px
 const ROTATE_ZONE = 16; // depth of the rotate zone outside a corner, CSS px
 const PIVOT_HIT = 10; // pivot grab radius, CSS px
 const PIVOT_SNAP = 8; // pivot snap distance, CSS px
 const PIVOT_SIZE = 16; // pivot marker size, CSS px
-const MINOR_MIN = 6; // hide minor grid lines closer than this, CSS px
 const MAGENTA = '#FF00FF'; // guide preview colour (named deviation: not an O'Tool token)
+// Marching ants of the selection frame, as in Photoshop (named deviation: black and white are
+// not O'Tool tokens). Dash length in CSS px; the dashes shift 1 CSS px per step.
+const ANTS = { dash: 4, stepMs: 50, dark: '#000000', light: '#FFFFFF' };
 const SIDES = [
     { side: 'left', du: -1, dv: 0 },
     { side: 'right', du: 1, dv: 0 },
@@ -63,6 +67,8 @@ export class AtlasCanvas {
         window.addEventListener('pointerup', (e) => this.onUp(e));
         canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
         canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+        window.addEventListener('keydown', (e) => this.onCtrl(e, true));
+        window.addEventListener('keyup', (e) => this.onCtrl(e, false));
     }
 
     get busy() {
@@ -270,13 +276,34 @@ export class AtlasCanvas {
                 this.selTiles = new Set([t.id]);
             }
             this.hooks.select();
-            if (this.selTiles.has(t.id)) this.drag = { kind: 'move', start: p, dx: 0, dy: 0 };
+            if (this.selTiles.has(t.id)) {
+                const m = this.doc.manifest;
+                this.drag = {
+                    kind: 'move',
+                    start: p,
+                    dx: 0,
+                    dy: 0,
+                    s0: s,
+                    started: false,
+                    last: s,
+                    ctrl: e.ctrlKey,
+                    box: Snap.boxOf(m.tiles.filter((x) => this.selTiles.has(x.id))),
+                    targets: Snap.targets(m, this.selTiles),
+                    lines: [],
+                };
+            }
             this.request();
             return;
         }
-        const sec = this.sectorAt(p);
+        // Empty canvas: a frame once the pointer moves 3 px, otherwise a click on release
+        // (design D1 of add-atlas-marquee).
+        this.drag = { kind: 'marquee', s0: s, p0: p, last: s, started: false, add: e.shiftKey, base: new Set(this.selTiles), sec: this.sectorAt(p), shift: e.shiftKey };
+    }
+
+    /** A click on empty canvas: selects or toggles the sector under it, or clears the selection. */
+    clickEmpty(sec, shift) {
         if (sec) {
-            if (e.shiftKey) {
+            if (shift) {
                 const i = this.selSectors.findIndex((x) => sameSector(x, sec));
                 if (i >= 0) this.selSectors.splice(i, 1);
                 else this.selSectors.push(sec);
@@ -318,8 +345,12 @@ export class AtlasCanvas {
             this.oy += s[1] - d.last[1];
             d.last = s;
         } else if (d.kind === 'move') {
-            d.dx = Math.round(p[0] - d.start[0]);
-            d.dy = Math.round(p[1] - d.start[1]);
+            d.last = s;
+            d.ctrl = e.ctrlKey;
+            this.dragMove(d);
+        } else if (d.kind === 'marquee') {
+            d.last = s;
+            this.dragMarquee(d);
         } else if (d.kind === 'scale') {
             this.dragScale(d, p);
         } else if (d.kind === 'rotate') {
@@ -334,6 +365,58 @@ export class AtlasCanvas {
             if (!d.frame && dist(s, d.start) < 3) return;
             this.dragPivot(d, p, s);
         }
+        this.request();
+    }
+
+    /** Move offset from the last pointer position, snapped unless Ctrl is held (design D1, D3). */
+    dragMove(d) {
+        // A click with a little jitter must not snap the tile away: start after 3 px.
+        if (!d.started && dist(d.last, d.s0) < 3 * (window.devicePixelRatio || 1)) return;
+        d.started = true;
+        const p = this.toCanvas(...d.last);
+        const rx = Math.round(p[0] - d.start[0]);
+        const ry = Math.round(p[1] - d.start[1]);
+        if (d.ctrl) {
+            d.dx = rx;
+            d.dy = ry;
+            d.lines = [];
+            return;
+        }
+        const r = Snap.snapMove(d.box, rx, ry, d.targets, this.doc.manifest.sector_size, this.k, window.devicePixelRatio || 1);
+        d.dx = r.dx;
+        d.dy = r.dy;
+        d.lines = r.lines;
+    }
+
+    /** Selection from the frame, recomputed from the starting selection each time (design D2). */
+    dragMarquee(d) {
+        if (!d.started && dist(d.last, d.s0) < 3 * (window.devicePixelRatio || 1)) return;
+        d.started = true;
+        const box = Marquee.boxFrom(d.p0, this.toCanvas(...d.last));
+        const sel = d.add ? new Set(d.base) : new Set();
+        for (const t of this.doc.manifest.tiles) if (Marquee.touches(F.corners(t), box)) sel.add(t.id);
+        this.selTiles = sel;
+        this.hooks.select();
+    }
+
+    /** Esc during a frame drag: restores the selection it started from (design D4). */
+    cancelMarquee() {
+        const d = this.drag;
+        if (!d || d.kind !== 'marquee') return false;
+        this.drag = null;
+        this.selTiles = d.base;
+        this.hooks.select();
+        this.request();
+        return true;
+    }
+
+    /** Ctrl pressed or released during a move: recompute at once, without pointer movement. */
+    onCtrl(e, down) {
+        const d = this.drag;
+        if (!d || d.kind !== 'move' || (e.code !== 'ControlLeft' && e.code !== 'ControlRight')) return;
+        if (d.ctrl === down) return;
+        d.ctrl = down;
+        this.dragMove(d);
         this.request();
     }
 
@@ -382,7 +465,9 @@ export class AtlasCanvas {
         this.drag = null;
         this.stage.classList.remove('is-panning');
         const find = (id) => this.doc.manifest.tiles.find((x) => x.id === id);
-        if (d.kind === 'move' && (d.dx !== 0 || d.dy !== 0)) {
+        if (d.kind === 'marquee') {
+            if (!d.started) this.clickEmpty(d.sec, d.shift);
+        } else if (d.kind === 'move' && (d.dx !== 0 || d.dy !== 0)) {
             const ids = this.doc.manifest.tiles.filter((t) => this.selTiles.has(t.id)).map((t) => t.id);
             // Keep the moved position on screen until the new document arrives.
             for (const id of ids) Object.assign(find(id), F.moved(find(id), d.dx, d.dy));
@@ -437,7 +522,7 @@ export class AtlasCanvas {
     drawGrid(m, c, dpr) {
         const g = this.ctx;
         const S = m.sector_size;
-        const showMinor = (S / 64) * this.k >= MINOR_MIN * dpr;
+        const showMinor = Snap.gridStep(S, this.k, dpr) === S / 64;
         const W = this.canvas.width;
         const H = this.canvas.height;
         const minor = new Path2D();
@@ -500,7 +585,7 @@ export class AtlasCanvas {
         const g = this.ctx;
         const W = this.canvas.width;
         const H = this.canvas.height;
-        this.colors ??= { bg: css('--bg'), panel2: css('--panel-2'), line: css('--line'), line2: css('--line-2'), blue: css('--blue'), muted: css('--muted') };
+        this.colors ??= { bg: css('--bg'), panel2: css('--panel-2'), line: css('--line'), line2: css('--line-2'), blue: css('--blue'), muted: css('--muted'), danger: css('--danger') };
         const c = this.colors;
         g.setTransform(1, 0, 0, 1, 0, 0);
         g.globalAlpha = 1;
@@ -585,7 +670,60 @@ export class AtlasCanvas {
                 this.drawPivot(this.toScreen(F.pivotCanvas(f)), c, dpr);
             }
         }
+        this.drawSnapLines(c, dpr);
+        this.drawMarquee(dpr);
         this.placePlus();
+    }
+
+    /** Snap lines of a move drag (design D4): along the target, spanning it and the moved box. */
+    /** The selection frame (design D5): 1 CSS px marching ants, black over white, no fill. */
+    drawMarquee(dpr) {
+        const d = this.drag;
+        if (!d || d.kind !== 'marquee' || !d.started) return;
+        const g = this.ctx;
+        const a = this.toScreen(d.p0);
+        const x0 = Math.round(Math.min(a[0], d.last[0])) + 0.5;
+        const y0 = Math.round(Math.min(a[1], d.last[1])) + 0.5;
+        const x1 = Math.round(Math.max(a[0], d.last[0])) + 0.5;
+        const y1 = Math.round(Math.max(a[1], d.last[1])) + 0.5;
+        const period = 2 * ANTS.dash;
+        g.lineWidth = dpr;
+        g.strokeStyle = ANTS.light;
+        g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        g.setLineDash([ANTS.dash * dpr, ANTS.dash * dpr]);
+        g.lineDashOffset = -(Math.floor(performance.now() / ANTS.stepMs) % period) * dpr;
+        g.strokeStyle = ANTS.dark;
+        g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        g.setLineDash([]);
+        g.lineDashOffset = 0;
+        // Keep the ants marching while the frame is up, even when the pointer rests.
+        this.request();
+    }
+
+    drawSnapLines(c, dpr) {
+        const d = this.drag;
+        if (!d || d.kind !== 'move' || !d.lines.length) return;
+        const g = this.ctx;
+        const b = { x0: d.box.x0 + d.dx, y0: d.box.y0 + d.dy, x1: d.box.x1 + d.dx, y1: d.box.y1 + d.dy };
+        g.strokeStyle = c.danger;
+        g.lineWidth = dpr;
+        g.beginPath();
+        for (const l of d.lines) {
+            if (l.axis === 'x') {
+                const [x, y0] = this.toScreen([l.value, Math.min(l.span[0], b.y0)]);
+                const y1 = this.toScreen([0, Math.max(l.span[1], b.y1)])[1];
+                const sx = Math.round(x) + 0.5;
+                g.moveTo(sx, y0);
+                g.lineTo(sx, y1);
+            } else {
+                const [x0, y] = this.toScreen([Math.min(l.span[0], b.x0), l.value]);
+                const x1 = this.toScreen([Math.max(l.span[1], b.x1), 0])[0];
+                const sy = Math.round(y) + 0.5;
+                g.moveTo(x0, sy);
+                g.lineTo(x1, sy);
+            }
+        }
+        g.stroke();
     }
 
     /** Pivot marker: Lucide `crosshair` geometry, blue over a dark halo. */

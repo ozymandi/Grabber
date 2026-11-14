@@ -133,6 +133,8 @@ All sectors of a workspace have one size: 512, 1024, 2048, 4096 or 8192. It can 
 
 - Click a sector to select it. **+** on its free sides adds a neighbour, flush, like UDIM tiles. **REMOVE** in the **Sector** panel deletes an empty sector.
 - Click a tile to select it, **Shift+click** to add more. Drag to move; a tile may lie across sector borders.
+- Drag on empty canvas, in a sector or beside it, to draw a frame: it selects every tile it touches, by the tile's turned outline. **Shift** adds to the selection, **Esc** cancels the frame. A plain click on empty canvas still selects the sector.
+- While you drag, the edges of the selection snap to sector borders, to the edges of other tiles and to the grid lines on screen. Borders and tiles snap twice: flush and at the workspace padding, so automatic and manual gaps match. A red line shows what the selection snapped to. Hold **Ctrl** to move without snapping.
 - Drag a corner handle to scale a single tile; the size shows in the status row. Scaling always starts from the original, so making a tile small and large again loses nothing.
 - **R** rotates the selection a quarter turn clockwise, **Shift+R** counter-clockwise. Quarter turns never resample the pixels. **Delete** removes it. **Esc** clears the selection.
 - Drag just outside a corner of a single selected tile to rotate it freely; hold **Shift** for 15° steps. The status row shows the angle.
