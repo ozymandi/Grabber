@@ -267,3 +267,7 @@ cargo tauri dev                  # run with the dev profile
 ```bash
 node ui/js/geom.test.mjs         # JS preview geometry matches the Rust export geometry
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
