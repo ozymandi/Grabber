@@ -73,8 +73,8 @@
   - export pixel-for-pixel equal to the current states.
 
   Verify the results, and that a Rect tile with no LLM states exports byte-identical to 2.3.0.
-- [ ] 6.2 Bump to 2.4.0 and run `release.ps1 -DryRun`. Publish only after the designer's explicit yes, then update this machine through the button. Verify that the installed `ripper-mcp.exe` reports 2.4.0 after the update.
-- [ ] 6.3 Update `task.md` (status, next step) and the project memory. Verify that both name the 2.4.0 release.
+- [x] 6.2 Bump to 2.4.0 and run `release.ps1 -DryRun`. Publish only after the designer's explicit yes, then update this machine through the button. Verify that the installed `ripper-mcp.exe` reports 2.4.0 after the update.
+- [x] 6.3 Update `task.md` (status, next step) and the project memory. Verify that both name the 2.4.0 release.
 
 ## Workflow follow-up
 
