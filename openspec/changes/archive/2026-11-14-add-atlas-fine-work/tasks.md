@@ -93,8 +93,8 @@
   - a ShareX capture arrives meanwhile and survives.
 
   Verify the exported pixels against the unit-test expectations and that the 2.0.0 file's tiles are untouched.
-- [ ] 7.2 Bump `src-tauri/Cargo.toml` to 2.1.0, run `scripts/release.ps1 -DryRun`, and publish only after the designer's explicit yes. Then update this machine through the button and check a ShareX capture. Verify with the release URL and the installed version.
-- [ ] 7.3 Update `task.md` (status, timings, next step) and the project memory. Verify that both name the 2.1.0 release.
+- [x] 7.2 Bump `src-tauri/Cargo.toml` to 2.1.0, run `scripts/release.ps1 -DryRun`, and publish only after the designer's explicit yes. Then update this machine through the button and check a ShareX capture. Verify with the release URL and the installed version.
+- [x] 7.3 Update `task.md` (status, timings, next step) and the project memory. Verify that both name the 2.1.0 release.
 
 ## Workflow follow-up
 
