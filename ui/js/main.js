@@ -8,6 +8,7 @@ import { Preview } from './preview.js';
 import { loadSettings, saveDefaults } from './settings.js';
 import { fetchSource, getLaunch, inApp, loadPath, log, pasteClipboard } from './source.js';
 import { onChange, removeQuad, setActive, setSource, state } from './state.js';
+import { initUpdate, tauriUpdateSource } from './update.js';
 import { setStatus } from './status.js';
 import { View } from './view.js';
 
@@ -148,6 +149,11 @@ async function start() {
             editor.fit();
             sourceStatus();
             window.__ripper = { state, view, editor, preview };
+            const demoVersion = new URLSearchParams(location.search).get('update');
+            if (demoVersion) {
+                const { demoUpdateSource } = await import('./dev.js');
+                await initUpdate(demoUpdateSource(demoVersion));
+            }
         }
         return;
     }
@@ -170,6 +176,8 @@ async function start() {
     else if (launch.source) await showSource(launch.source);
     else setStatus('Open, paste or drop an image');
     if (settingsWarning) setStatus(settingsWarning, 'error');
+    // Rust only ever reports an update in standalone mode (spec app-distribution).
+    if (state.mode === 'standalone') await initUpdate(tauriUpdateSource());
 }
 
 start().catch((e) => {

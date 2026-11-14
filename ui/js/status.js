@@ -14,3 +14,6 @@ export function setStatus(message, kind = 'info') {
     text.title = message;
     for (const k of KINDS) dot.classList.toggle(`status-indicator--${k}`, k === kind);
 }
+
+/** The message currently shown in the status row. */
+export const statusText = () => text.textContent;

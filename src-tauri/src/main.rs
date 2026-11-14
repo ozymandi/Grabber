@@ -1,6 +1,8 @@
 // Release builds use the Windows GUI subsystem so no console window appears.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod update;
+
 use ripper_core::export::{self, Failure, Outcome, QuadReq};
 use ripper_core::geom::Invalid;
 use ripper_core::launch::{self, Launch, Mode};
@@ -27,6 +29,8 @@ struct AppState {
     settings_path: PathBuf,
     /// Set when the settings file could not be read at start; shown once in the status row.
     settings_warning: Mutex<Option<String>>,
+    /// Newer release found by the background check (standalone mode only).
+    update: Mutex<Option<tauri_plugin_updater::Update>>,
 }
 
 #[derive(Serialize)]
@@ -91,6 +95,9 @@ struct ExportResult {
     size: Option<[u32; 2]>,
     /// ShareX mode and every write succeeded: the UI closes the app.
     exit_after: bool,
+    /// Numbers of the quads that reached at least one destination (Send, Save All only).
+    /// The UI clears their "unsaved" mark (design D6 of add-installer-updater).
+    saved: Vec<u32>,
 }
 
 fn invalid_text(r: Invalid) -> &'static str {
@@ -123,6 +130,7 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
             output: None,
             size: None,
             exit_after: false,
+            saved: Vec::new(),
         };
         match req.kind {
             ExportKind::Send | ExportKind::Copy => {
@@ -146,13 +154,23 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
                             }),
                         }
                     }
+                    let before = out.written.len();
                     export::write_to_folders(&folders, &src.stem, q.number, &png, &mut out);
+                    if res.clipboard || res.output.is_some() || out.written.len() > before {
+                        res.saved.push(q.number);
+                    }
                 }
             }
             ExportKind::All => {
                 for q in &req.quads {
                     match export::render(&src, q) {
-                        Ok(r) => export::write_to_folders(&folders, &src.stem, q.number, &export::encode_png(&r), &mut out),
+                        Ok(r) => {
+                            let before = out.written.len();
+                            export::write_to_folders(&folders, &src.stem, q.number, &export::encode_png(&r), &mut out);
+                            if out.written.len() > before {
+                                res.saved.push(q.number);
+                            }
+                        }
                         Err(reason) => res.skipped.push(Skipped { number: q.number, reason }),
                     }
                 }
@@ -168,7 +186,7 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
 }
 
 /// Stores the main window's logical size in the settings file.
-fn remember_window(app: &AppHandle) {
+pub(crate) fn remember_window(app: &AppHandle) {
     let Some(w) = app.get_webview_window("main") else { return };
     let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) else { return };
     let logical = size.to_logical::<f64>(scale);
@@ -304,6 +322,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             launch,
             source: RwLock::new(None),
@@ -312,6 +331,7 @@ fn main() {
             settings: Mutex::new(settings),
             settings_path,
             settings_warning: Mutex::new(settings_warning),
+            update: Mutex::new(None),
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -336,6 +356,7 @@ fn main() {
                     }
                 }
             });
+            update::spawn_check(app.handle());
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("ripper", |ctx, request, responder| {
@@ -351,7 +372,9 @@ fn main() {
             get_settings,
             set_settings,
             export,
-            quit
+            quit,
+            update::get_update,
+            update::install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running ripper");

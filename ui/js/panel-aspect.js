@@ -27,7 +27,7 @@ export function renderAspect() {
 
 function update(patch) {
     const q = activeQuad();
-    if (q) Object.assign(q, patch);
+    if (q) Object.assign(q, patch, { dirty: true });
     Object.assign(state.defaults, patch);
     if (patch.custom) state.defaults.custom = { ...patch.custom };
     onDefaultsChanged(state.defaults);

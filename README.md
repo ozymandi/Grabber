@@ -17,38 +17,24 @@ It works on its own, and it plugs into **ShareX**: capture a region with a hotke
 ## Requirements
 
 - Windows 10 or 11 (64-bit).
-- Microsoft Edge WebView2 Runtime. It is part of Windows 11; on Windows 10 install it from Microsoft if it is missing.
+- Microsoft Edge WebView2 Runtime. It is part of Windows 11; on Windows 10 the installer downloads it if it is missing.
 - ShareX, for the capture workflow. These steps were written against ShareX 22.4.
 
 ## Install
 
-There is no prebuilt download yet, so build ripper from source. It takes a few minutes the first time.
+1. Download `ripper_<version>_x64-setup.exe` from the [latest release](https://github.com/ozymandi/Grabber/releases/latest).
+2. Run it. ripper installs for your Windows user only, into `%LOCALAPPDATA%\ripper`, with no administrator rights.
+   - The installer is not code-signed, so Windows SmartScreen may say it "protected your PC". Click **More info**, then **Run anyway**.
+   - On Windows 10 the installer fetches the WebView2 Runtime if it is missing.
+3. Start **ripper** from the Start menu, open the **Output** panel and choose your folders (see [Output folders](#output-folders)).
 
-1. Install the build tools, once:
-   - [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload. A full Visual Studio with that workload also works.
-   - Rust, via [rustup](https://rustup.rs/) or `winget install --id Rustlang.Rustup --exact`.
-   - The Tauri CLI: `cargo install tauri-cli --locked`.
+The rest of this guide assumes `%LOCALAPPDATA%\ripper\ripper.exe`.
 
-2. Build:
+### Updates
 
-   ```bash
-   git clone https://github.com/ozymandi/Grabber.git
-   cd Grabber/src-tauri
-   cargo tauri build
-   ```
+When you start ripper on its own (not from ShareX), it checks for a newer release in the background. If there is one, the status row says so and an update icon appears next to **?**. Click it to download, verify and install the update; ripper restarts as the new version. If quads are unsaved, the first click warns you and a second click confirms.
 
-   The result is a single portable file: `src-tauri\target\release\ripper.exe`.
-
-3. Copy it to a permanent place, so later rebuilds do not touch the copy ShareX uses:
-
-   ```powershell
-   New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\ripper"
-   Copy-Item target\release\ripper.exe "$env:LOCALAPPDATA\Programs\ripper\ripper.exe"
-   ```
-
-   The rest of this guide assumes `%LOCALAPPDATA%\Programs\ripper\ripper.exe`.
-
-4. Start it once on its own, open the **Output** panel and choose your folders (see [Output folders](#output-folders)).
+Nothing is downloaded until you click, and a ripper started by ShareX never checks for updates, so captures are never slowed down. Updates keep the same install folder, so the ShareX action keeps working.
 
 ## Connect to ShareX
 
@@ -69,7 +55,7 @@ Give ripper its own hotkey. Your existing capture hotkeys keep working exactly a
      | Field | Value |
      |---|---|
      | Name | `ripper` |
-     | File path | `%LOCALAPPDATA%\Programs\ripper\ripper.exe` (use **Browse...**) |
+     | File path | `%LOCALAPPDATA%\ripper\ripper.exe` (use **Browse...**) |
      | Arguments | `"$input" "$output"` |
      | Output file name extension | `tex.png` |
      | Extensions | leave empty |
@@ -134,7 +120,34 @@ Settings are stored in `%APPDATA%\ripper\config.toml`.
 ## Uninstall
 
 1. ShareX **Hotkey settings**: select the ripper row and press **Remove**.
-2. Delete `%LOCALAPPDATA%\Programs\ripper`, `%APPDATA%\ripper` (settings) and `%LOCALAPPDATA%\app.ripper.texture` (WebView2 data).
+2. Windows **Settings > Apps > Installed apps**: find **ripper** and choose **Uninstall**.
+3. Your settings stay in `%APPDATA%\ripper`, so a later reinstall keeps your folders. Delete that folder to remove them too.
+
+## Building from source
+
+1. Install the build tools, once:
+   - [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload. A full Visual Studio with that workload also works.
+   - Rust, via [rustup](https://rustup.rs/) or `winget install --id Rustlang.Rustup --exact`.
+   - The Tauri CLI: `cargo install tauri-cli --locked`.
+
+2. Build a portable exe without an installer:
+
+   ```bash
+   git clone https://github.com/ozymandi/Grabber.git
+   cd Grabber/src-tauri
+   cargo tauri build --no-bundle
+   ```
+
+   The result is `src-tauri	arget\release\ripper.exe`. A self-built copy does not update itself.
+
+### Publishing a release (maintainers)
+
+`scripts/release.ps1` builds the signed installer, writes `latest.json` and publishes both to GitHub Releases. It needs the updater signing key in the user environment variables `TAURI_SIGNING_PRIVATE_KEY` (path to the key file) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Raise `version` in `src-tauri/Cargo.toml` first; it is the only place the version is set.
+
+```powershell
+.\scripts\release.ps1 -DryRun   # build and write latest.json, publish nothing
+.\scripts\release.ps1           # build, confirm, publish v<version>
+```
 
 ## Development
 

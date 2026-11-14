@@ -29,3 +29,34 @@ export function demoSource() {
     const pixels = new Uint8Array(g.getImageData(0, 0, w, h).data.buffer);
     return { w, h, stem: 'demo', rev: 1, pixels, ms: 0, quad };
 }
+
+/**
+ * Stand-in for the Rust updater in `?demo&update=<version>`: reports the update after a
+ * moment; install plays a short download, then fails with `?demo&update=<v>&fail=<text>`
+ * or reports installing.
+ */
+export function demoUpdateSource(version) {
+    const handlers = {};
+    const fire = (name, payload) => (handlers[name] ?? []).forEach((fn) => fn(payload));
+    const params = new URLSearchParams(location.search);
+    setTimeout(() => fire('update-available', { version }), 300);
+    return {
+        listen: async (name, fn) => {
+            (handlers[name] ??= []).push(fn);
+        },
+        getUpdate: async () => null,
+        install: () =>
+            new Promise((resolve, reject) => {
+                const total = 4_000_000;
+                let done = 0;
+                const tick = setInterval(() => {
+                    done = Math.min(total, done + 400_000);
+                    fire('update-progress', { done, total });
+                    if (done < total) return;
+                    clearInterval(tick);
+                    if (params.has('fail')) reject(new Error(params.get('fail')));
+                    else fire('update-installing', {}), resolve();
+                }, 60);
+            }),
+    };
+}

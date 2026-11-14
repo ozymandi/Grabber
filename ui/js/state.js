@@ -13,7 +13,8 @@ export const ASPECTS = {
 export const state = {
     /** { w, h, stem, rev, pixels } or null */
     source: null,
-    /** [{ corners: [[x,y] x4] in click/edit order, aspectKey, custom: {w,h}, pot }] */
+    /** [{ corners: [[x,y] x4] in click/edit order, aspectKey, custom: {w,h}, pot, dirty }]
+     *  `dirty`: created or changed since it was last exported by Send or Save All. */
     quads: [],
     active: -1,
     /** Corners of the quad being created (0-3 points). */
@@ -66,6 +67,7 @@ export function addQuad(corners) {
         aspectKey: d.aspectKey,
         custom: { ...d.custom },
         pot: d.pot,
+        dirty: true,
     });
     state.active = state.quads.length - 1;
     emit('quads');
@@ -88,5 +90,19 @@ export function removeQuad(i) {
 
 export function moveCorner(qi, ci, p) {
     state.quads[qi].corners[ci] = p;
+    state.quads[qi].dirty = true;
     emit('geometry');
+}
+
+/** Clears the unsaved mark of the quads with these 1-based numbers. */
+export function markSaved(numbers) {
+    for (const n of numbers) {
+        const q = state.quads[n - 1];
+        if (q) q.dirty = false;
+    }
+}
+
+/** Quads created or changed since they were last exported by Send or Save All. */
+export function unsavedCount() {
+    return state.quads.filter((q) => q.dirty).length;
 }

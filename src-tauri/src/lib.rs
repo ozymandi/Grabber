@@ -6,4 +6,5 @@ pub mod geom;
 pub mod launch;
 pub mod settings;
 pub mod source;
+pub mod update_policy;
 pub mod warp;

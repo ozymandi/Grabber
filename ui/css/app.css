@@ -158,6 +158,8 @@
 
 /* ===== 2. ripper layout ===== */
 
+.icon-btn[hidden] { display: none; }
+
 .shell {
     height: 100%;
     display: grid;

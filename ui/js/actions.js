@@ -3,7 +3,7 @@
 
 import { invalidReason } from './panel-quads.js';
 import { invoke } from './source.js';
-import { activeQuad, aspectOf, quadInfo, state } from './state.js';
+import { activeQuad, aspectOf, markSaved, quadInfo, state } from './state.js';
 import { setStatus } from './status.js';
 
 const toReq = (q, i) => ({ corners: q.corners, aspect: aspectOf(q), pot: q.pot, number: i + 1 });
@@ -52,6 +52,7 @@ export async function sendActive() {
     const n = state.active + 1;
     const r = await run('send', [toReq(q, state.active)]);
     if (!r) return;
+    markSaved(r.saved);
     if (r.exit_after) {
         await invoke('quit');
         return;
@@ -82,6 +83,7 @@ export async function saveAll() {
     }
     const r = await run('all', state.quads.map(toReq));
     if (!r) return;
+    markSaved(r.saved);
     const skipped = r.skipped.map((s) => `Q${s.number} skipped (${invalidReason(s.reason).toLowerCase()})`);
     if (r.folders === 0) {
         setStatus(['Nothing saved: no output folder is enabled', ...skipped].join('; '), 'error');
