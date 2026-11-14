@@ -11,8 +11,15 @@ const SLOTS = [
 
 const el = (id) => document.getElementById(id);
 
+/** Shows the current workspace name in the Atlas slot (it is chosen in ATLAS mode). */
+export async function refreshAtlasTarget() {
+    const name = await window.__TAURI__.core.invoke('atlas_name').catch(() => null);
+    el('atlasTarget').value = name ?? 'Untitled';
+}
+
 export function renderOutput() {
     if (!settings) return;
+    el('atlasOn').checked = settings.atlas_on;
     for (const s of SLOTS) {
         el(s.on).checked = settings[s.onKey];
         el(s.dir).value = settings[s.dirKey];
@@ -27,6 +34,8 @@ async function save(patch) {
 }
 
 export function initOutput() {
+    el('atlasOn').addEventListener('change', () => save({ atlas_on: el('atlasOn').checked }));
+    refreshAtlasTarget();
     for (const s of SLOTS) {
         el(s.on).addEventListener('change', () => save({ [s.onKey]: el(s.on).checked }));
         el(s.browse).addEventListener('click', async () => {

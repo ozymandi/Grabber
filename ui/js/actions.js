@@ -14,6 +14,15 @@ function failureText(f) {
     return `${f.target}${f.path ? ` (${f.path})` : ''}: ${f.error}`;
 }
 
+/** Atlas part of a status line, or null when the Atlas output is off. */
+function atlasPart(r) {
+    const a = r.atlas;
+    if (!a) return null;
+    if (a.error) return `Atlas: ${a.error}`;
+    const tray = a.tray ? ` (${a.tray} beside the grid, not exported)` : '';
+    return `atlas ${a.name || 'Untitled'} +${a.added}${tray}`;
+}
+
 /** Shared tail of a status line: folder count or failures. */
 function folderPart(r) {
     if (r.folders === 0) return 'no folder enabled';
@@ -58,12 +67,15 @@ export async function sendActive() {
         return;
     }
     const size = r.size ? ` ${r.size[0]} × ${r.size[1]}` : '';
-    if (r.failures.length) {
-        setStatus(`Q${n}${size} sent with problems. ${r.failures.map(failureText).join('; ')}`, 'error');
+    const atlas = atlasPart(r);
+    if (r.failures.length || r.atlas?.error) {
+        const problems = r.failures.map(failureText);
+        if (r.atlas?.error) problems.push(atlas);
+        setStatus(`Q${n}${size} sent with problems. ${problems.join('; ')}`, 'error');
     } else {
         const parts = ['clipboard'];
         if (r.output) parts.push('ShareX');
-        setStatus(`Sent Q${n}${size} to ${parts.join(', ')}; ${folderPart(r)}`, 'success');
+        setStatus(`Sent Q${n}${size} to ${parts.join(', ')}; ${folderPart(r)}${atlas ? `; ${atlas}` : ''}`, 'success');
     }
 }
 
@@ -85,7 +97,14 @@ export async function saveAll() {
     if (!r) return;
     markSaved(r.saved);
     const skipped = r.skipped.map((s) => `Q${s.number} skipped (${invalidReason(s.reason).toLowerCase()})`);
-    if (r.folders === 0) {
+    const atlas = atlasPart(r);
+    if (atlas) skipped.unshift(atlas);
+    if (r.folders === 0 && r.atlas && !r.atlas.error) {
+        const saved = state.quads.length - r.skipped.length;
+        setStatus([`Saved ${saved} quad${saved === 1 ? '' : 's'}`, ...skipped].join('; '), r.skipped.length ? 'error' : 'success');
+    } else if (r.atlas?.error) {
+        setStatus([`Saved ${r.written.length} file(s) with problems`, ...r.failures.map(failureText), ...skipped].join('; '), 'error');
+    } else if (r.folders === 0) {
         setStatus(['Nothing saved: no output folder is enabled', ...skipped].join('; '), 'error');
     } else if (r.failures.length) {
         setStatus([`Saved ${r.written.length} file(s) with problems`, ...r.failures.map(failureText), ...skipped].join('; '), 'error');

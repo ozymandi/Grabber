@@ -104,9 +104,25 @@ pub fn write_to_folders(folders: &[Folder], stem: &str, number: u32, png: &[u8],
     }
 }
 
+/// Whether a Send in ShareX mode may close the app: only when the ShareX output was
+/// written and nothing failed, including the atlas when its output is on. Any failure keeps
+/// the window open so the warning is seen (spec texture-export).
+pub fn exit_after_send(send: bool, sharex_output_written: bool, failures: usize, atlas_failed: bool) -> bool {
+    send && sharex_output_written && failures == 0 && !atlas_failed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sharex_send_stays_open_on_any_failure() {
+        assert!(exit_after_send(true, true, 0, false));
+        assert!(!exit_after_send(true, true, 0, true), "atlas failure keeps the app open");
+        assert!(!exit_after_send(true, true, 1, false), "folder failure keeps the app open");
+        assert!(!exit_after_send(true, false, 0, false), "standalone or unwritten output");
+        assert!(!exit_after_send(false, true, 0, false), "Save All never exits");
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("ripper-export-{tag}-{}", std::process::id()));

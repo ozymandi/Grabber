@@ -1,6 +1,7 @@
 // Release builds use the Windows GUI subsystem so no console window appears.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod atlas_cmd;
 mod update;
 
 use ripper_core::export::{self, Failure, Outcome, QuadReq};
@@ -8,6 +9,8 @@ use ripper_core::geom::Invalid;
 use ripper_core::launch::{self, Launch, Mode};
 use ripper_core::settings::{self, Settings};
 use ripper_core::source::{self, Source};
+use ripper_core::atlas::model::Provenance;
+use ripper_core::atlas::store::{self as atlas_store, Store};
 use ripper_core::clipboard;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -31,6 +34,8 @@ struct AppState {
     settings_warning: Mutex<Option<String>>,
     /// Newer release found by the background check (standalone mode only).
     update: Mutex<Option<tauri_plugin_updater::Update>>,
+    /// Atlas working folders under %APPDATA%/ripper/workspaces.
+    store: Store,
 }
 
 #[derive(Serialize)]
@@ -53,6 +58,8 @@ fn get_settings(state: State<'_, AppState>) -> SettingsInfo {
 fn set_settings(mut settings: Settings, state: State<'_, AppState>) -> Result<(), String> {
     let mut cur = state.settings.lock().unwrap();
     settings.window = cur.window;
+    // The current workspace is owned by the atlas commands; a page copy may be stale.
+    settings.current_workspace = cur.current_workspace.clone();
     *cur = settings;
     settings::save(&state.settings_path, &cur).map_err(|e| format!("Cannot save settings: {e}"))
 }
@@ -80,6 +87,16 @@ struct Skipped {
     reason: Invalid,
 }
 
+#[derive(Serialize, Default)]
+struct AtlasOutcome {
+    /// Workspace name, for the status line.
+    name: String,
+    added: usize,
+    /// Of the added tiles, how many went to the tray.
+    tray: usize,
+    error: Option<String>,
+}
+
 #[derive(Serialize)]
 struct ExportResult {
     /// Files written to the output folders.
@@ -95,6 +112,8 @@ struct ExportResult {
     size: Option<[u32; 2]>,
     /// ShareX mode and every write succeeded: the UI closes the app.
     exit_after: bool,
+    /// What the Atlas output did; `None` when it is off.
+    atlas: Option<AtlasOutcome>,
     /// Numbers of the quads that reached at least one destination (Send, Save All only).
     /// The UI clears their "unsaved" mark (design D6 of add-installer-updater).
     saved: Vec<u32>,
@@ -114,7 +133,13 @@ fn invalid_text(r: Invalid) -> &'static str {
 #[tauri::command]
 async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResult, String> {
     let src = state.source.read().unwrap().clone().ok_or("No image loaded")?;
-    let folders = state.settings.lock().unwrap().folders();
+    let (folders, atlas_on) = {
+        let s = state.settings.lock().unwrap();
+        (s.folders(), s.atlas_on)
+    };
+    // Resolve (or create) the current workspace before rendering; a failure here is
+    // reported as an atlas failure and never blocks the other outputs.
+    let atlas_ws = if atlas_on { Some(state.current_workspace().map_err(|e| e.to_string())) } else { None };
     let sharex_output = match state.launch.mode() {
         Mode::Sharex => state.launch.output.clone(),
         Mode::Standalone => None,
@@ -131,7 +156,10 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
             size: None,
             exit_after: false,
             saved: Vec::new(),
+            atlas: None,
         };
+        // Rendered quads for the atlas: (png, w, h, number), added after every other output.
+        let mut atlas_jobs: Vec<(Vec<u8>, u32, u32, u32)> = Vec::new();
         match req.kind {
             ExportKind::Send | ExportKind::Copy => {
                 let q = req.quads.first().ok_or("No quad to send")?;
@@ -159,6 +187,7 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
                     if res.clipboard || res.output.is_some() || out.written.len() > before {
                         res.saved.push(q.number);
                     }
+                    atlas_jobs.push((png, r.w, r.h, q.number));
                 }
             }
             ExportKind::All => {
@@ -166,17 +195,52 @@ async fn export(req: ExportReq, state: State<'_, AppState>) -> Result<ExportResu
                     match export::render(&src, q) {
                         Ok(r) => {
                             let before = out.written.len();
-                            export::write_to_folders(&folders, &src.stem, q.number, &export::encode_png(&r), &mut out);
+                            let png = export::encode_png(&r);
+                            export::write_to_folders(&folders, &src.stem, q.number, &png, &mut out);
                             if out.written.len() > before {
                                 res.saved.push(q.number);
                             }
+                            atlas_jobs.push((png, r.w, r.h, q.number));
                         }
                         Err(reason) => res.skipped.push(Skipped { number: q.number, reason }),
                     }
                 }
             }
         }
-        res.exit_after = req.kind == ExportKind::Send && sharex_output.is_some() && res.output.is_some() && out.failures.is_empty();
+        if req.kind != ExportKind::Copy {
+            if let Some(ws) = atlas_ws {
+                let mut a = AtlasOutcome::default();
+                match ws {
+                    Err(e) => a.error = Some(e),
+                    Ok(ws) => {
+                        a.name = ws.read().map(|m| m.name).unwrap_or_default();
+                        for (png, w, h, number) in &atlas_jobs {
+                            match ws.add_tile(png, *w, *h, Provenance { stem: src.stem.clone(), quad: *number }) {
+                                Ok((_, p)) => {
+                                    a.added += 1;
+                                    if p.sector.is_none() {
+                                        a.tray += 1;
+                                    }
+                                    if !res.saved.contains(number) {
+                                        res.saved.push(*number);
+                                    }
+                                }
+                                Err(e) => {
+                                    a.error = Some(match e {
+                                        atlas_store::Error::Busy => "the atlas is busy in another ripper window".into(),
+                                        e => e.to_string(),
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                res.atlas = Some(a);
+            }
+        }
+        let atlas_failed = res.atlas.as_ref().is_some_and(|a| a.error.is_some());
+        res.exit_after = export::exit_after_send(req.kind == ExportKind::Send && sharex_output.is_some(), res.output.is_some(), out.failures.len(), atlas_failed);
         res.written = out.written;
         res.failures = out.failures;
         Ok(res)
@@ -286,11 +350,18 @@ fn ui_log(message: String) {
 
 /// `ripper://` handler (design D4). `GET /source.rgba` returns the raw RGBA8 bytes of the
 /// current source with its size in `X-Width` / `X-Height`; no image decoding in the WebView.
-fn serve(app: &tauri::AppHandle, path: &str) -> Response<Vec<u8>> {
+fn serve(app: &tauri::AppHandle, path: &str, query: Option<&str>) -> Response<Vec<u8>> {
     let base = Response::builder()
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Expose-Headers", "X-Width, X-Height")
         .header("Cache-Control", "no-store");
+    if path.starts_with("/atlas/") {
+        let state = app.state::<AppState>();
+        return match atlas_cmd::serve_thumbnail(&state, path, query) {
+            Some(png) => base.status(StatusCode::OK).header("Content-Type", "image/png").body(png).unwrap(),
+            None => base.status(StatusCode::NOT_FOUND).body(Vec::new()).unwrap(),
+        };
+    }
     if path != "/source.rgba" {
         return base.status(StatusCode::NOT_FOUND).body(Vec::new()).unwrap();
     }
@@ -332,6 +403,7 @@ fn main() {
             settings_path,
             settings_warning: Mutex::new(settings_warning),
             update: Mutex::new(None),
+            store: Store::new(atlas_store::default_root()),
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -362,7 +434,8 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol("ripper", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let path = request.uri().path().to_string();
-            std::thread::spawn(move || responder.respond(serve(&app, &path)));
+            let query = request.uri().query().map(str::to_string);
+            std::thread::spawn(move || responder.respond(serve(&app, &path, query.as_deref())));
         })
         .invoke_handler(tauri::generate_handler![
             get_launch,
@@ -374,7 +447,16 @@ fn main() {
             export,
             quit,
             update::get_update,
-            update::install_update
+            update::install_update,
+            atlas_cmd::atlas_get,
+            atlas_cmd::atlas_name,
+            atlas_cmd::atlas_revision,
+            atlas_cmd::atlas_new,
+            atlas_cmd::atlas_open,
+            atlas_cmd::atlas_save,
+            atlas_cmd::atlas_save_as,
+            atlas_cmd::atlas_edit,
+            atlas_cmd::atlas_export
         ])
         .run(tauri::generate_context!())
         .expect("error while running ripper");

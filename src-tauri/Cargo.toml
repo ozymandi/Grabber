@@ -1,6 +1,6 @@
 [package]
 name = "ripper"
-version = "1.0.0"
+version = "2.0.0"
 description = "Grab perspective quads from any image and flatten them into frontal textures"
 edition = "2021"
 rust-version = "1.80"
@@ -30,6 +30,7 @@ toml = "0.8"
 dirs = "5"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 tauri-plugin-updater = "2"
+zip = { version = "9.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [profile.release]
 opt-level = 3

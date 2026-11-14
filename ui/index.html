@@ -13,9 +13,18 @@
             <canvas id="view"></canvas>
             <canvas id="overlay"></canvas>
         </div>
+        <div class="stage atlas-stage" id="atlasStage" hidden>
+            <canvas id="atlasCanvas"></canvas>
+            <div id="atlasPlus" class="atlas-plus-layer"></div>
+        </div>
+        <div class="seg-row seg-row--2 mode-dock" id="modeSeg" role="group" aria-label="Mode">
+            <button class="seg is-active" type="button" data-mode="rip" title="Mark quads on an image">RIP</button>
+            <button class="seg" type="button" data-mode="atlas" title="Arrange tiles on the atlas">ATLAS</button>
+        </div>
 
         <aside class="side">
             <main class="app">
+                <div class="mode-panels" id="ripPanels">
                 <section class="panel">
                     <h2>Source</h2>
                     <div class="btn-row">
@@ -99,12 +108,76 @@
                             </button>
                         </div>
                     </div>
+                    <div class="folder-slot">
+                        <label class="check">
+                            <input id="atlasOn" type="checkbox">
+                            <span>Atlas</span>
+                        </label>
+                        <input id="atlasTarget" type="text" readonly title="Tiles go to the current workspace; change it in ATLAS mode">
+                    </div>
                     <div class="btn-row">
                         <button id="saveAllBtn" class="action-btn" type="button" title="Save every quad to the enabled folders (Ctrl+S)">SAVE ALL</button>
                         <button id="copyBtn" class="action-btn" type="button" title="Copy the active quad to the clipboard">COPY</button>
                     </div>
                     <button id="sendBtn" class="primary action-btn" type="button" title="Active quad to clipboard, folders and ShareX (Enter)">SEND ACTIVE</button>
                 </section>
+                </div>
+
+                <div class="mode-panels" id="atlasPanels" hidden>
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Workspace</h2>
+                        <span id="atlasUnsaved" class="unsaved-dot" title="Unsaved changes" hidden></span>
+                    </div>
+                    <input id="atlasName" type="text" readonly>
+                    <div class="btn-row">
+                        <button id="atlasNewBtn" class="action-btn" type="button" title="Start an empty workspace (Ctrl+N)">NEW</button>
+                        <button id="atlasOpenBtn" class="action-btn" type="button" title="Open a .ripper file (Ctrl+O)">OPEN</button>
+                    </div>
+                    <div class="btn-row">
+                        <button id="atlasSaveBtn" class="action-btn" type="button" title="Save the workspace (Ctrl+S)">SAVE</button>
+                        <button id="atlasSaveAsBtn" class="action-btn" type="button" title="Save under a new name (Ctrl+Shift+S)">SAVE AS</button>
+                    </div>
+                    <span class="field-label">Sector size</span>
+                    <div class="seg-row seg-row--5" id="atlasSizeSeg" role="group" aria-label="Sector size">
+                        <button class="seg" type="button" data-size="512">512</button>
+                        <button class="seg" type="button" data-size="1024">1024</button>
+                        <button class="seg" type="button" data-size="2048">2048</button>
+                        <button class="seg" type="button" data-size="4096">4096</button>
+                        <button class="seg" type="button" data-size="8192">8192</button>
+                    </div>
+                    <label class="field">
+                        <span class="field-label">Padding, px</span>
+                        <input id="atlasPadding" type="number" min="0" max="2048" step="1" value="8" title="Space kept between automatically placed tiles, in pixels">
+                    </label>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Sector</h2>
+                        <span id="atlasSectorName" class="panel-meta"></span>
+                    </div>
+                    <p id="atlasSectorHint" class="sub">Click a sector to select it</p>
+                    <button id="atlasRemoveSectorBtn" class="action-btn" type="button" title="Remove the selected sector" disabled>REMOVE</button>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Export</h2>
+                        <span id="atlasExportCount" class="panel-meta"></span>
+                    </div>
+                    <div class="seg-row" id="atlasScopeSeg" role="group" aria-label="Export scope">
+                        <button class="seg is-active" type="button" data-scope="sector" title="One PNG per sector">SECTOR</button>
+                        <button class="seg" type="button" data-scope="group_file" title="The selected sectors as one sheet">GROUP FILE</button>
+                        <button class="seg" type="button" data-scope="group_set" title="One PNG per sector, numbered 1001, 1002...">GROUP SET</button>
+                    </div>
+                    <label class="field">
+                        <span class="field-label">File name</span>
+                        <input id="atlasExportName" type="text" spellcheck="false">
+                    </label>
+                    <button id="atlasExportBtn" class="primary action-btn" type="button" title="Choose a folder and write the PNG files">EXPORT</button>
+                </section>
+                </div>
             </main>
 
             <footer class="side-foot">
@@ -164,6 +237,10 @@
                     <p>Task settings, Actions, Add: point to ripper.exe, arguments "$input" "$output", output extension tex.png (a plain png would overwrite the original capture). In After capture tasks enable Save image to file and Perform actions. ShareX waits while ripper is open, so finish or press Esc before the next capture.</p>
                 </section>
                 <section class="help-card">
+                    <h3>6. Atlas</h3>
+                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag tiles, scale them by a corner, rotate with R. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...). SAVE keeps everything in a .ripper file.</p>
+                </section>
+                <section class="help-card">
                     <h3>Shortcuts</h3>
                     <dl class="keys">
                         <dt>Enter</dt><dd>Send the active quad</dd>
@@ -175,6 +252,16 @@
                         <dt>Wheel</dt><dd>Zoom at the cursor</dd>
                         <dt>Space+drag</dt><dd>Pan (or middle mouse drag)</dd>
                         <dt>F</dt><dd>Fit the image to the view</dd>
+                    </dl>
+                    <dl class="keys">
+                        <dt>ATLAS</dt><dd></dd>
+                        <dt>R / Shift+R</dt><dd>Rotate the selected tiles</dd>
+                        <dt>Delete</dt><dd>Remove the selected tiles</dd>
+                        <dt>Shift+click</dt><dd>Add to the selection</dd>
+                        <dt>Esc</dt><dd>Clear the selection</dd>
+                        <dt>Ctrl+S</dt><dd>Save the workspace</dd>
+                        <dt>Ctrl+Shift+S</dt><dd>Save as</dd>
+                        <dt>Ctrl+O / Ctrl+N</dt><dd>Open / new workspace</dd>
                     </dl>
                 </section>
             </div>

@@ -18,6 +18,10 @@ pub struct Settings {
     pub pot: bool,
     /// Last window inner size in logical pixels.
     pub window: Option<[u32; 2]>,
+    /// Atlas output on: Send and Save All also add tiles to the current workspace.
+    pub atlas_on: bool,
+    /// Working-folder id of the current atlas workspace; empty until one is created.
+    pub current_workspace: String,
 }
 
 impl Default for Settings {
@@ -31,6 +35,8 @@ impl Default for Settings {
             aspect_custom: [1.0, 1.0],
             pot: false,
             window: None,
+            atlas_on: false,
+            current_workspace: String::new(),
         }
     }
 }
@@ -119,6 +125,8 @@ mod tests {
             aspect_custom: [3.0, 1.0],
             pot: true,
             window: Some([1440, 900]),
+            atlas_on: true,
+            current_workspace: "w18f0-1a-0".into(),
         };
         save(&p, &s).unwrap();
         assert_eq!(load(&p), (s, None));
@@ -152,6 +160,26 @@ mod tests {
         assert_eq!(s.drive_dir, r"G:\Tex");
         assert!(s.drive_on);
         assert_eq!(s.aspect_mode, "edges");
+    }
+
+    #[test]
+    fn config_from_1_0_gets_atlas_defaults() {
+        let p = temp("v1");
+        let old = "local_dir = ''
+local_on = false
+drive_dir = ''
+drive_on = false
+aspect_mode = 'edges'
+aspect_custom = [1.0, 1.0]
+pot = false
+window = [2194, 1211]
+";
+        std::fs::write(&p, old).unwrap();
+        let (s, msg) = load(&p);
+        assert!(msg.is_none());
+        assert!(!s.atlas_on);
+        assert_eq!(s.current_workspace, "");
+        assert_eq!(s.window, Some([2194, 1211]));
     }
 
     #[test]

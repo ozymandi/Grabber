@@ -1,5 +1,6 @@
 //! Core of ripper, kept free of Tauri so it can be unit- and integration-tested quickly.
 
+pub mod atlas;
 pub mod clipboard;
 pub mod export;
 pub mod geom;

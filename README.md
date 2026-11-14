@@ -13,6 +13,7 @@ It works on its own, and it plugs into **ShareX**: capture a region with a hotke
 - **Ctrl+S** saves every quad.
 - Two output folders, for example a local folder and a Google Drive folder. Each can be switched on or off. Existing files are never overwritten.
 - Input from ShareX, the clipboard (Ctrl+V), drag and drop, or Open: PNG, JPEG, BMP, WebP.
+- **Atlas** (2.0): every texture you send can also land on an atlas, a grid of square power-of-two sectors in the UDIM layout. Arrange the tiles and export one sector, a sheet, or a numbered set `name.1001.png`, `name.1002.png`...
 
 ## Requirements
 
@@ -108,6 +109,44 @@ The **Output** panel has two slots, **Local folder** and **Google Drive folder**
 - If a folder cannot be written, for example because the drive is not mounted, the other outputs still go through. A red status names the folder, and in ShareX mode the window stays open so you see it.
 
 Settings are stored in `%APPDATA%\ripper\config.toml`.
+
+## Atlas
+
+The **RIP | ATLAS** switch at the bottom left of the canvas changes the mode. RIP is the quad editor described above; ATLAS arranges the textures you collected. A launch from ShareX always opens in RIP.
+
+### Collecting tiles
+
+Tick **Atlas** in the **Output** panel. From then on **Enter** (also from ShareX) and **Ctrl+S** add the texture as a tile to the current workspace, next to the clipboard and folders. The field under the checkbox names the workspace.
+
+A new tile goes into free space of the sector you selected last, keeping the workspace padding; tiles already there never move. A tile larger than a sector is scaled down to fit, and its full-size original is kept. A tile that fits nowhere waits on the canvas beside the grid. Anything outside the sectors is never exported.
+
+### Workspace
+
+A workspace is a `.ripper` file: the sectors, where each tile sits, and every original at full size. **NEW**, **OPEN**, **SAVE** and **SAVE AS** are in the **Workspace** panel. The workspace you opened last stays current, also for ShareX captures.
+
+Every change is kept at once in `%APPDATA%\ripper\workspaces`, so closing the window loses nothing; a blue dot next to **Workspace** means the `.ripper` file is not saved yet.
+
+All sectors of a workspace have one size: 512, 1024, 2048, 4096 or 8192. It can be changed only while the workspace is empty. **Padding, px** is the gap kept between tiles that are placed automatically.
+
+### Sectors and tiles
+
+- Click a sector to select it. **+** on its free sides adds a neighbour, flush, like UDIM tiles. **REMOVE** in the **Sector** panel deletes an empty sector.
+- Click a tile to select it, **Shift+click** to add more. Drag to move; a tile may lie across sector borders.
+- Drag a corner handle to scale a single tile; the size shows in the status row. Scaling always starts from the original, so making a tile small and large again loses nothing.
+- **R** rotates the selection a quarter turn clockwise, **Shift+R** counter-clockwise. **Delete** removes it. **Esc** clears the selection.
+- Pan and zoom as in RIP: mouse wheel, Space+drag or middle drag, **F** to fit.
+
+### Export
+
+Select the sectors to export (Shift+click for several; with none selected, the last selected sector is used), pick a scope in the **Export** panel, set the file name and press **EXPORT** to choose a folder.
+
+| Scope | Result |
+|---|---|
+| **SECTOR** | One PNG per sector: `name.png` for one sector, numbered like a set for several |
+| **GROUP FILE** | One sheet covering the selected sectors; unselected cells stay transparent. At most 16384 px per side |
+| **GROUP SET** | One PNG per sector, `name.1001.png`, `name.1002.png`, `name.1011.png`... |
+
+Numbers follow UDIM: 1001 is the bottom-left sector of the selection, +1 per column to the right, +10 per row up, at most 10 columns. Empty space is transparent. Existing files are never overwritten: the whole export gets `_2`, `_3` and so on, so a set keeps one name (`name_2.1001.png`).
 
 ## Troubleshooting
 

@@ -9,6 +9,9 @@ import { loadSettings, saveDefaults } from './settings.js';
 import { fetchSource, getLaunch, inApp, loadPath, log, pasteClipboard } from './source.js';
 import { onChange, removeQuad, setActive, setSource, state } from './state.js';
 import { initUpdate, tauriUpdateSource } from './update.js';
+import { atlasKey, atlasKeyUp, initAtlas } from './atlas/atlas.js';
+import { currentMode, initMode } from './mode.js';
+import { refreshAtlasTarget } from './panel-output.js';
 import { setStatus } from './status.js';
 import { View } from './view.js';
 
@@ -73,6 +76,11 @@ function isTyping(e) {
 
 function onKey(e) {
     if (isHelpOpen()) return;
+    if (currentMode() === 'atlas') {
+        // ATLAS has its own keys; RIP keys (Enter, Ctrl+V, Tab...) do nothing there.
+        if (!isTyping(e)) atlasKey(e);
+        return;
+    }
     if (e.key === ' ' && !isTyping(e)) {
         e.preventDefault();
         if (!e.repeat) editor.setSpace(true);
@@ -115,6 +123,7 @@ function wireUi() {
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', (e) => {
         if (e.key === ' ') editor.setSpace(false);
+        atlasKeyUp(e);
     });
     window.addEventListener('blur', () => editor.setSpace(false));
     document.getElementById('openBtn').addEventListener('click', () => openFile());
@@ -135,8 +144,18 @@ function revealWindow() {
     );
 }
 
+/** RIP is visible again after ATLAS: refit its canvases and refresh the Atlas slot. */
+function ripShown() {
+    editor.resize();
+    editor.request();
+    preview.request();
+    refreshAtlasTarget();
+}
+
 async function start() {
     wireUi();
+    initMode(ripShown, inApp());
+    if (inApp()) initAtlas();
     if (!inApp()) {
         initAspect(() => {});
         setStatus('Open, paste or drop an image');

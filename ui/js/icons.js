@@ -18,3 +18,11 @@ export const UPDATE_ICON = `<svg viewBox="0 0 1024 1024" fill="none" stroke="cur
     <line x1="512" y1="380.46" x2="512" y2="643.54"/>
     <polyline points="599.71 559.66 512 643.54 424.29 559.66"/>
 </svg>`;
+
+// Sector "+" glyph: Lucide `plus` (lucide-static 1.72.0, ISC), as published; only the fixed
+// width/height are dropped so the button sizes it. O'Tool has no plus glyph; the designer
+// chose Lucide for new icons.
+export const PLUS_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M5 12h14"/>
+    <path d="M12 5v14"/>
+</svg>`;

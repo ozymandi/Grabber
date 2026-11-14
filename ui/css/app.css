@@ -345,3 +345,60 @@
 
 .keys dt { color: var(--ink); white-space: nowrap; }
 .keys dd { margin: 0; }
+
+/* ===== 3. ATLAS mode (add-texture-atlas), built from O'Tool tokens only ===== */
+
+.mode-panels { display: contents; }
+.mode-panels[hidden], .stage[hidden] { display: none; }
+
+/* Both stages share the canvas column; only one is shown at a time. */
+.shell > .stage { grid-column: 1; grid-row: 1; }
+
+.atlas-stage { cursor: default; }
+.atlas-stage.can-pan { cursor: grab; }
+.atlas-stage.is-panning { cursor: grabbing; }
+.atlas-stage.over-tile { cursor: move; }
+.atlas-stage.over-handle-nwse { cursor: nwse-resize; }
+.atlas-stage.over-handle-nesw { cursor: nesw-resize; }
+
+/* "+" buttons for adding a sector next to the selected one. */
+.atlas-plus-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.atlas-plus-layer .icon-btn,
+.atlas-plus-layer .icon-btn:hover {
+    position: absolute;
+    pointer-events: auto;
+    transform: translate(-50%, -50%);
+    background: transparent;
+    border-color: var(--line);
+}
+
+/* Unsaved-changes mark beside the Workspace title. */
+.unsaved-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--blue);
+    box-shadow: 0 0 6px rgba(24, 160, 251, 0.6);
+    align-self: center;
+}
+
+.unsaved-dot[hidden] { display: none; }
+
+#atlasName, #atlasTarget { cursor: default; text-overflow: ellipsis; }
+
+/* RIP | ATLAS switch: two segment buttons at the bottom-left of the canvas area, no card;
+   8 px from the edges and 304 px wide, like the cards on the right. */
+.shell { position: relative; }
+
+.mode-dock {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    width: 304px;
+    z-index: 2;
+}
