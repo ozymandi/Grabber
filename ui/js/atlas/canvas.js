@@ -55,6 +55,7 @@ export class AtlasCanvas {
         this.drag = null; // { kind: 'move'|'scale'|'rotate'|'pivot'|'pan', ... }
         this.space = false;
         this.preview = false;
+        this.proposal = null; // pending LLM proposal with its preview manifest (add-mcp-editing D7)
         this.opacity = null; // live Opacity while its slider is dragged
         this.pending = false;
         this.colors = null;
@@ -618,6 +619,8 @@ export class AtlasCanvas {
             g.save();
             g.translate(cx, cy);
             g.rotate((F.angle(f) * Math.PI) / 180);
+            // A pixel-art picture state is drawn with hard pixels (add-mcp-editing D6).
+            g.imageSmoothingEnabled = t.history?.[t.current]?.filter !== 'nearest';
             if (img && img !== 'loading') g.drawImage(img, -f.w / 2, -f.h / 2, f.w, f.h);
             else {
                 g.fillStyle = c.line;
@@ -626,6 +629,7 @@ export class AtlasCanvas {
             g.restore();
         }
         if (this.preview) this.drawGuides(m, true);
+        this.drawProposalPictures(m);
 
         // Screen-space strokes and labels.
         g.setTransform(1, 0, 0, 1, 0, 0);
@@ -668,9 +672,77 @@ export class AtlasCanvas {
                 this.drawPivot(this.toScreen(F.pivotCanvas(f)), c, dpr);
             }
         }
+        this.drawProposalLines(m, c, dpr);
         this.drawSnapLines(c, dpr);
         this.drawMarquee(dpr);
         this.placePlus();
+    }
+
+    /** Tiles a pending LLM proposal moves, scales or turns, half transparent at their new place. */
+    proposalChanges(m) {
+        const p = this.proposal?.preview;
+        if (!p) return { moved: [], deleted: [], added: [], removed: [] };
+        const now = new Map(m.tiles.map((t) => [t.id, t]));
+        const after = new Map(p.tiles.map((t) => [t.id, t]));
+        const same = (a, b) => a.c2[0] === b.c2[0] && a.c2[1] === b.c2[1] && a.w === b.w && a.h === b.h && a.rot === b.rot && (a.tilt ?? 0) === (b.tilt ?? 0);
+        const has = (list, s) => list.some((c) => sameSector(c, s));
+        return {
+            moved: p.tiles.filter((t) => now.has(t.id) && !same(now.get(t.id), t)),
+            deleted: m.tiles.filter((t) => !after.has(t.id)),
+            added: p.sectors.filter((s) => !has(m.sectors, s)),
+            removed: m.sectors.filter((s) => !has(p.sectors, s)),
+        };
+    }
+
+    drawProposalPictures(m) {
+        const g = this.ctx;
+        g.globalAlpha = 0.5;
+        for (const t of this.proposalChanges(m).moved) {
+            const img = this.images.get(t.item);
+            const [cx, cy] = F.centre(t);
+            g.save();
+            g.translate(cx, cy);
+            g.rotate((F.angle(t) * Math.PI) / 180);
+            if (img && img !== 'loading') g.drawImage(img, -t.w / 2, -t.h / 2, t.w, t.h);
+            g.restore();
+        }
+        g.globalAlpha = 1;
+    }
+
+    /** Dashed outlines of a pending proposal: moved tiles and new sectors in blue, deleted tiles crossed out and removed sectors in red. */
+    drawProposalLines(m, c, dpr) {
+        const ch = this.proposalChanges(m);
+        const g = this.ctx;
+        const poly = (pts) => {
+            g.beginPath();
+            pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+            g.closePath();
+            g.stroke();
+        };
+        g.lineWidth = dpr;
+        g.setLineDash([4 * dpr, 4 * dpr]);
+        g.strokeStyle = c.blue;
+        for (const t of ch.moved) poly(F.corners(t).map((p) => this.toScreen(p)));
+        for (const s of ch.added) {
+            const r = sectorRect(s, m.sector_size);
+            poly([[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]].map((p) => this.toScreen(p)));
+        }
+        g.strokeStyle = c.danger;
+        for (const s of ch.removed) {
+            const r = sectorRect(s, m.sector_size);
+            poly([[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]].map((p) => this.toScreen(p)));
+        }
+        g.setLineDash([]);
+        for (const t of ch.deleted) {
+            const cs = F.corners(this.shown(t)).map((p) => this.toScreen(p));
+            poly(cs);
+            g.beginPath();
+            g.moveTo(cs[0][0], cs[0][1]);
+            g.lineTo(cs[2][0], cs[2][1]);
+            g.moveTo(cs[1][0], cs[1][1]);
+            g.lineTo(cs[3][0], cs[3][1]);
+            g.stroke();
+        }
     }
 
     /** Snap lines of a move drag (design D4): along the target, spanning it and the moved box. */

@@ -496,7 +496,13 @@ fn main() {
             atlas_cmd::atlas_edit,
             atlas_cmd::atlas_apply_steps,
             atlas_cmd::atlas_load_guides,
-            atlas_cmd::atlas_export
+            atlas_cmd::atlas_export,
+            atlas_cmd::atlas_publish_ui,
+            atlas_cmd::atlas_proposal,
+            atlas_cmd::atlas_apply_proposal,
+            atlas_cmd::atlas_discard_proposal,
+            atlas_cmd::atlas_go_to_state,
+            atlas_cmd::atlas_go_to_entry
         ])
         .run(tauri::generate_context!())
         .expect("error while running ripper");

@@ -29,6 +29,8 @@ pub enum Edit {
     AddSectors { cells: Vec<Sector> },
     RemoveSectors { cells: Vec<Sector> },
     SetGuide { sector: Sector, guide: Option<Guide> },
+    /// Paste History pictures as new tiles (add-mcp-editing D8); undone by a Delete.
+    PasteStates { tiles: Vec<super::history::PasteTile> },
 }
 
 /// What applying an edit did.
@@ -116,9 +118,19 @@ pub fn apply(m: &mut Manifest, e: Edit) -> Result<Applied, Refused> {
             let gone: Vec<(usize, Tile)> =
                 m.tiles.iter().enumerate().filter(|(_, t)| ids.contains(&t.id)).map(|(i, t)| (i, t.clone())).collect();
             a.removed = m.delete_tiles(&ids);
-            a.released = gone.iter().map(|(_, t)| t.item.clone()).collect();
+            a.released = gone.iter().flat_map(|(_, t)| t.items()).collect();
             a.inverse = gone.into_iter().map(|(index, tile)| Edit::RestoreTile { index, tile }).collect();
             a.label = format!("delete {}", plural(a.removed, "tile"));
+        }
+        Edit::PasteStates { tiles } => {
+            for t in &tiles {
+                if !m.items().contains(t.state.item.as_str()) {
+                    return Err(Refused("The copied picture is no longer in this workspace".into()));
+                }
+            }
+            let ids = m.paste_states(tiles)?;
+            a.label = format!("paste {}", plural(ids.len(), "tile"));
+            a.inverse = vec![Edit::Delete { ids }];
         }
         Edit::RestoreTile { index, tile } => {
             if m.tile(tile.id).is_some() {
@@ -225,7 +237,7 @@ mod tests {
     }
 
     fn tile(id: u64, x: i64, y: i64) -> Tile {
-        Tile { id, item: format!("{id}.png"), w0: 40, h0: 20, frame: Frame::from_rect(Rect { x, y, w: 40, h: 20 }), source: Provenance::default() }
+        Tile { id, item: format!("{id}.png"), w0: 40, h0: 20, frame: Frame::from_rect(Rect { x, y, w: 40, h: 20 }), source: Provenance::default(), history: Vec::new(), current: 0 }
     }
 
     fn base() -> Manifest {

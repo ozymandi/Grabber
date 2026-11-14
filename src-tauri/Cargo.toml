@@ -1,9 +1,10 @@
 [package]
 name = "ripper"
-version = "2.3.0"
+version = "2.4.0"
 description = "Grab perspective quads from any image and flatten them into frontal textures"
 edition = "2021"
 rust-version = "1.80"
+default-run = "ripper"
 
 # Tauri-free core (geometry, warp, export, settings). A distinct name avoids the
 # lib/bin .pdb filename collision on Windows.
@@ -14,6 +15,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "ripper"
 path = "src/main.rs"
+
+# MCP server for LLM clients (add-mcp-editing D1): a console program on ripper_core. The
+# Tauri bundler installs every binary of the package next to ripper.exe.
+[[bin]]
+name = "ripper-mcp"
+path = "src/bin/ripper-mcp.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

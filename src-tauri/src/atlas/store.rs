@@ -399,14 +399,19 @@ impl Workspace {
             let p = super::place::place_new(m, w0, h0);
             let id = m.next_id;
             m.next_id += 1;
-            m.tiles.push(super::model::Tile {
+            let mut t = super::model::Tile {
                 id,
                 item: item.clone(),
                 w0,
                 h0,
                 frame: super::model::Frame::from_rect(p.rect),
                 source,
-            });
+                history: Vec::new(),
+                current: 0,
+            };
+            t.ensure_history("RIP");
+            t.history[0].at = super::model::now();
+            m.tiles.push(t);
             Ok(p)
         });
         if r.is_err() {
@@ -501,7 +506,7 @@ pub(crate) mod tests {
     pub fn push_tile(m: &mut Manifest, item: &str, x: i64, y: i64, w: i64, h: i64) -> u64 {
         let id = m.next_id;
         m.next_id += 1;
-        m.tiles.push(Tile { id, item: item.into(), w0: w as u32, h0: h as u32, frame: Frame::from_rect(Rect { x, y, w, h }), source: Provenance::default() });
+        m.tiles.push(Tile { id, item: item.into(), w0: w as u32, h0: h as u32, frame: Frame::from_rect(Rect { x, y, w, h }), source: Provenance::default(), history: Vec::new(), current: 0 });
         id
     }
 
@@ -752,8 +757,8 @@ pub(crate) mod tests {
         fs::create_dir_all(&store.root).unwrap();
         let before: Vec<_> = fs::read_dir(&store.root).unwrap().collect();
         let f = store.root.join("future.ripper");
-        zip_with(&f, r#"{"format":3,"revision":1,"name":"future","sector_size":1024,"padding":8,"sectors":[],"active":null,"tiles":[],"next_id":1}"#, &[]);
-        assert!(matches!(store.open(&f), Err(Error::NewerFormat(3))));
+        zip_with(&f, r#"{"format":4,"revision":1,"name":"future","sector_size":1024,"padding":8,"sectors":[],"active":null,"tiles":[],"next_id":1}"#, &[]);
+        assert!(matches!(store.open(&f), Err(Error::NewerFormat(4))));
         let after: Vec<_> = fs::read_dir(&store.root).unwrap().filter_map(|e| e.ok()).filter(|e| e.path() != f).collect();
         assert_eq!(after.len(), before.len(), "no working folder left behind");
         let _ = fs::remove_dir_all(&store.root);

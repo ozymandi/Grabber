@@ -90,6 +90,12 @@ $sig = "$setup.sig"
 foreach ($f in $setup, $sig) {
     if (-not (Test-Path -LiteralPath $f)) { Fail "build output missing: $f" }
 }
+# The MCP server ships in the same setup (add-mcp-editing D1): it must be in the installer
+# script and report the release version.
+$nsi = Join-Path $target 'release\nsis\x64\installer.nsi'
+if (-not (Select-String -LiteralPath $nsi -SimpleMatch '/oname=ripper-mcp.exe' -Quiet)) { Fail 'the setup does not install ripper-mcp.exe' }
+$mcpVersion = (& (Join-Path $target 'release\ripper-mcp.exe') --version | Select-Object -First 1)
+if ($mcpVersion -ne "ripper-mcp $version") { Fail "ripper-mcp.exe reports '$mcpVersion', expected 'ripper-mcp $version'" }
 
 # 4. latest.json -----------------------------------------------------------------------------
 
@@ -112,6 +118,7 @@ Write-Host "release: ready in $bundle"
 Write-Host "  $setupName"
 Write-Host "  $setupName.sig"
 Write-Host '  latest.json'
+Write-Host "  (includes $mcpVersion)"
 
 if ($DryRun) {
     Write-Host 'release: dry run, nothing published'

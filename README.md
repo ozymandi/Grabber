@@ -137,7 +137,7 @@ A new tile goes into free space of the sector you selected last, keeping the wor
 
 ### Workspace
 
-A workspace is a `.ripper` file: the sectors, where each tile sits, every original at full size, the guides, and the guide and fill settings. Files saved by 2.1 need ripper 2.1 or later; 2.1 opens files from 2.0 as they were. **NEW**, **OPEN**, **SAVE** and **SAVE AS** are in the **Workspace** panel. The workspace you opened last stays current, also for ShareX captures.
+A workspace is a `.ripper` file: the sectors, where each tile sits, every original at full size with every picture in its History, the guides, and the guide and fill settings. Files saved by 2.4 need ripper 2.4 or later (older versions refuse them rather than lose the History); 2.4 opens files from 2.0 to 2.3 as they were. **NEW**, **OPEN**, **SAVE** and **SAVE AS** are in the **Workspace** panel. The workspace you opened last stays current, also for ShareX captures.
 
 Every change is kept at once in `%APPDATA%\ripper\workspaces`, so closing the window loses nothing; a blue dot next to **Workspace** means the `.ripper` file is not saved yet.
 
@@ -156,6 +156,10 @@ All sectors of a workspace have one size: 512, 1024, 2048, 4096 or 8192. It can 
 - **Ctrl+Z** undoes your own changes in this window (up to 100 steps), **Ctrl+Shift+Z** or **Ctrl+Y** redoes them. Tiles that arrive from ShareX or RIP are never undone, and settings such as padding, opacity or fill are not part of the history. If something was changed elsewhere in the meantime, the part that can no longer be undone is skipped and the status row says why.
 - Pan and zoom as in RIP: mouse wheel, Space+drag or middle drag, **F** to fit.
 
+### History
+
+**History**, at the top left of the canvas, lists the pictures of the selected tile, newest on top: its original and every picture an LLM wrote for it, with who made it and when. Click a row to bring that picture back; the tile keeps its place and the newer pictures stay listed. With a sector selected, History lists the edits an LLM made to the whole sector; clicking one puts all its tiles back to that edit, and the bottom row brings back what they had before. Select a row and press **Ctrl+C**, then **Ctrl+V** to paste it into the active sector as a new tile (a sector row pastes all its tiles, keeping their layout). A paste is undone with **Ctrl+Z**; going to a History row is not an undo step. Moving, scaling and rotating are not part of History.
+
 ### Guides
 
 Every sector shows a graph-paper grid: major lines every 1/8 of the sector, minor ones every 1/64.
@@ -173,6 +177,37 @@ Select the sectors to export (Shift+click for several; with none selected, the l
 | **GROUP SET** | One PNG per sector, `name.1001.png`, `name.1002.png`, `name.1011.png`... |
 
 Numbers follow UDIM: 1001 is the bottom-left sector of the selection, +1 per column to the right, +10 per row up, at most 10 columns. **Fill** sets the empty space: **TRANSPARENT**, or **EXTEND**, which spreads the colour of the nearest tile up to **Edge, px** (16 by default) so mipmaps get no dark seams. Each sector is filled on its own, so colour never crosses a sector border and all three scopes give the same pixels. Existing files are never overwritten: the whole export gets `_2`, `_3` and so on, so a set keeps one name (`name_2.1001.png`).
+
+## Connect an LLM (MCP)
+
+An LLM client such as Claude Code, Codex or Gemini CLI can restyle atlas tiles with its own means: its image generation, skills such as ComfyUI, or other programs. ripper gives it the pictures and takes the new ones back; it never edits pictures itself and uses no network. The connection is the MCP server `ripper-mcp.exe`, installed next to `ripper.exe` in `%LOCALAPPDATA%\ripper`. It works on the current workspace, with or without a ripper window open.
+
+**Claude Code** (PowerShell):
+
+```powershell
+claude mcp add --scope user ripper -- "$env:LOCALAPPDATA\ripper\ripper-mcp.exe"
+```
+
+**Codex**, in `%USERPROFILE%\.codex\config.toml` (put in your user name):
+
+```toml
+[mcp_servers.ripper]
+command = 'C:\Users\<you>\AppData\Local\ripper\ripper-mcp.exe'
+```
+
+**Gemini CLI**, in `%USERPROFILE%\.gemini\settings.json`:
+
+```json
+{ "mcpServers": { "ripper": { "command": "C:\\Users\\<you>\\AppData\\Local\\ripper\\ripper-mcp.exe" } } }
+```
+
+Then ask in plain words, for example "pixelize the selected tiles to 64 px" or "make sector 1002 look like watercolour".
+
+- **What it works on.** Selected tiles in ATLAS; else the selected sectors; with nothing selected, the whole atlas, and the LLM asks you first. A tile or sector you name in the request wins. The choice is fixed when the work starts.
+- **New pictures.** The LLM shows you its plan and thumbnails, and writes after your yes. A new picture keeps the tile's place and size, and the shape cut out in RIP stays transparent unless the LLM is told otherwise. Pixel-art pictures are drawn with hard pixels.
+- **Sectors.** A sector is edited tile by tile, or as one picture that ripper cuts back into its tiles. In the second way, tiles turned by a free angle or lying across the sector edge are left as they are and named.
+- **Layout.** The LLM cannot move, scale, rotate or delete tiles, change sectors or export. It can only propose such changes: ATLAS shows a bar with its words, the moved tiles half transparent at their new place with a dashed outline, deleted tiles crossed out and new sectors dashed. **APPLY** makes the changes (one **Ctrl+Z** undoes them); **DISCARD** drops them. A newer proposal replaces one you have not answered.
+- **Tools** the LLM sees: `atlas_info`, `get_scope`, `get_tile`, `render_sector`, `write_tile`, `write_sector`, `go_to_state`, `propose`.
 
 ## Troubleshooting
 

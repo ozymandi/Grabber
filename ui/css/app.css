@@ -372,6 +372,97 @@
     pointer-events: none;
 }
 
+/* History panel (add-mcp-editing D8): top left of the ATLAS canvas. Rows reuse the quad-row
+   treatment; the current state gets the active look. */
+.atlas-history {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 260px;
+    max-height: calc(100% - 80px);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    z-index: 2;
+}
+
+.history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.history-row {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--panel-2);
+    cursor: pointer;
+}
+
+.history-row:hover { border-color: var(--line-2); }
+.history-row.is-chosen { border-color: var(--line-2); }
+
+.history-row.is-active {
+    background: linear-gradient(180deg, #2f4657 0%, #253946 100%);
+    color: #d9f1ff;
+}
+
+.history-thumb {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    background: var(--bg);
+    border-radius: var(--radius-control);
+}
+
+.history-text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.history-name,
+.history-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.history-thumb.is-pixel { image-rendering: pixelated; }
+
+.history-meta { color: var(--muted); font-size: 11px; }
+.history-row.is-active .history-meta { color: #d9f1ff; }
+
+/* LLM proposal bar (add-mcp-editing D7): top centre of the ATLAS canvas. */
+.atlas-proposal {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(480px, calc(100% - 24px));
+    z-index: 2;
+}
+
+.atlas-proposal[hidden] { display: none; }
+
+.atlas-proposal-text {
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.atlas-proposal-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
 .atlas-plus-layer .icon-btn,
 .atlas-plus-layer .icon-btn:hover {
     position: absolute;

@@ -6,7 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const FORMAT: u32 = 2;
+/// 3 adds tile picture histories and the sector log (add-mcp-editing D4).
+pub const FORMAT: u32 = 3;
 pub const SECTOR_SIZES: [u32; 5] = [512, 1024, 2048, 4096, 8192];
 pub const DEFAULT_SECTOR: u32 = 2048;
 pub const DEFAULT_PADDING: u32 = 8;
@@ -260,7 +261,41 @@ impl Frame {
     }
 }
 
-/// A placed texture: the original `w0 x h0`, where it sits ([`Frame`]) and where it came from.
+/// Local time for history entries, `YYYY-MM-DDTHH:MM:SS`.
+pub fn now() -> String {
+    chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
+}
+
+/// How a picture state is scaled into its frame (add-mcp-editing D6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Filter {
+    #[default]
+    Smooth,
+    /// Hard pixels, for pixel art.
+    Nearest,
+}
+
+/// One picture of a tile's history (spec atlas-history).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PictureState {
+    pub item: String,
+    pub w0: u32,
+    pub h0: u32,
+    pub name: String,
+    /// Who made it: "RIP", or a client name such as "Claude Code".
+    pub by: String,
+    /// Local time, `YYYY-MM-DDTHH:MM:SS`; empty when unknown.
+    #[serde(default)]
+    pub at: String,
+    #[serde(default)]
+    pub filter: Filter,
+}
+
+/// A placed texture: the current picture `item`, `w0 x h0`, where it sits ([`Frame`]) and
+/// where it came from. `item`/`w0`/`h0` mirror `history[current]`; `history[0]` is the
+/// original. An empty history (format 2 and older, tests) means the current picture is the
+/// only state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tile {
     pub id: u64,
@@ -271,6 +306,10 @@ pub struct Tile {
     pub frame: Frame,
     #[serde(default)]
     pub source: Provenance,
+    #[serde(default)]
+    pub history: Vec<PictureState>,
+    #[serde(default)]
+    pub current: usize,
 }
 
 impl Tile {
@@ -278,6 +317,80 @@ impl Tile {
     pub fn rect(&self) -> Rect {
         self.frame.rect()
     }
+
+    /// Gives an empty history its one "Original" state from the current picture.
+    pub fn ensure_history(&mut self, by: &str) {
+        if self.history.is_empty() {
+            self.history.push(PictureState {
+                item: self.item.clone(),
+                w0: self.w0,
+                h0: self.h0,
+                name: "Original".into(),
+                by: by.into(),
+                at: String::new(),
+                filter: Filter::Smooth,
+            });
+            self.current = 0;
+        }
+        self.current = self.current.min(self.history.len() - 1);
+    }
+
+    /// The current picture and every picture state, without repeats.
+    pub fn items(&self) -> Vec<String> {
+        let mut v: Vec<String> = std::iter::once(self.item.clone()).chain(self.history.iter().map(|s| s.item.clone())).collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// The original picture's item (the bottom state).
+    pub fn original_item(&self) -> &str {
+        self.history.first().map(|s| s.item.as_str()).unwrap_or(&self.item)
+    }
+
+    /// How the current picture is scaled.
+    pub fn filter(&self) -> Filter {
+        self.history.get(self.current).map(|s| s.filter).unwrap_or_default()
+    }
+
+    /// Makes state `i` current and mirrors it into `item`/`w0`/`h0`. The frame stays.
+    pub fn go_to(&mut self, i: usize) -> Result<(), Refused> {
+        self.ensure_history("RIP");
+        let s = self.history.get(i).ok_or_else(|| Refused(format!("Tile {} has no state {}", self.id, i + 1)))?;
+        self.item = s.item.clone();
+        self.w0 = s.w0;
+        self.h0 = s.h0;
+        self.current = i;
+        Ok(())
+    }
+
+    /// Puts `state` on top of the history and makes it current; returns its index.
+    pub fn push_state(&mut self, state: PictureState) -> usize {
+        self.ensure_history("RIP");
+        self.history.push(state);
+        let i = self.history.len() - 1;
+        let _ = self.go_to(i);
+        i
+    }
+}
+
+/// A tile changed by one sector-wide request: its state before and after.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SectorChange {
+    pub id: u64,
+    pub before: usize,
+    pub after: usize,
+}
+
+/// One sector-wide picture edit (spec atlas-history "History of a sector").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectorEntry {
+    pub sector: Sector,
+    pub name: String,
+    pub by: String,
+    #[serde(default)]
+    pub at: String,
+    pub tiles: Vec<SectorChange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -304,6 +417,9 @@ pub struct Manifest {
     /// Edge fill distance in pixels, 1..=sector size.
     #[serde(default = "default_edge")]
     pub edge: u32,
+    /// Sector-wide picture edits, oldest first (add-mcp-editing D4).
+    #[serde(default)]
+    pub sector_log: Vec<SectorEntry>,
 }
 
 pub const DEFAULT_OPACITY: u8 = 50;
@@ -386,6 +502,7 @@ impl Default for Manifest {
             guide_opacity: DEFAULT_OPACITY,
             fill: Fill::Transparent,
             edge: DEFAULT_EDGE,
+            sector_log: Vec::new(),
         }
     }
 }
@@ -421,9 +538,14 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, ParseError> {
                 o.insert("rot".into(), rot.into());
             }
         }
-        v["format"] = FORMAT.into();
     }
-    serde_json::from_value(v).map_err(|e| ParseError::Corrupt(e.to_string()))
+    v["format"] = FORMAT.into();
+    let mut m: Manifest = serde_json::from_value(v).map_err(|e| ParseError::Corrupt(e.to_string()))?;
+    // Format 2 and older: every tile starts its history with its picture as the original.
+    for t in &mut m.tiles {
+        t.ensure_history("RIP");
+    }
+    Ok(m)
 }
 
 /// Why an operation was refused; the text goes to the status row.
@@ -526,9 +648,13 @@ impl Manifest {
         Ok(())
     }
 
-    /// Every item the workspace references: tile originals and guide images.
+    /// Every item the workspace references: every picture state of every tile, and guide images.
     pub fn items(&self) -> std::collections::BTreeSet<&str> {
-        self.tiles.iter().map(|t| t.item.as_str()).chain(self.guides.iter().map(|g| g.item.as_str())).collect()
+        self.tiles
+            .iter()
+            .flat_map(|t| std::iter::once(t.item.as_str()).chain(t.history.iter().map(|s| s.item.as_str())))
+            .chain(self.guides.iter().map(|g| g.item.as_str()))
+            .collect()
     }
 
     pub fn guide(&self, s: Sector) -> Option<&Guide> {
@@ -763,7 +889,7 @@ mod tests {
     }
 
     fn tile(id: u64, x: i64, y: i64, w: i64, h: i64) -> Tile {
-        Tile { id, item: format!("{id}.png"), w0: w as u32, h0: h as u32, frame: Frame::from_rect(Rect { x, y, w, h }), source: Provenance::default() }
+        Tile { id, item: format!("{id}.png"), w0: w as u32, h0: h as u32, frame: Frame::from_rect(Rect { x, y, w, h }), source: Provenance::default(), history: Vec::new(), current: 0 }
     }
 
     #[test]
@@ -1114,8 +1240,8 @@ mod tests {
 
     #[test]
     fn newer_format_is_refused() {
-        let v = r#"{"format":3,"revision":0,"name":"x","sector_size":1024,"padding":8,"sectors":[],"active":null,"tiles":[],"next_id":1}"#;
-        assert_eq!(parse_manifest(v), Err(ParseError::Newer(3)));
+        let v = r#"{"format":4,"revision":0,"name":"x","sector_size":1024,"padding":8,"sectors":[],"active":null,"tiles":[],"next_id":1}"#;
+        assert_eq!(parse_manifest(v), Err(ParseError::Newer(4)));
     }
 
     #[test]

@@ -16,6 +16,21 @@
         <div class="stage atlas-stage" id="atlasStage" hidden>
             <canvas id="atlasCanvas"></canvas>
             <div id="atlasPlus" class="atlas-plus-layer"></div>
+            <section id="atlasHistory" class="panel atlas-history" aria-label="History">
+                <div class="panel-head">
+                    <h2>History</h2>
+                    <span id="atlasHistoryWhat" class="panel-meta"></span>
+                </div>
+                <p id="atlasHistoryHint" class="sub">Select one tile or one sector to see its history</p>
+                <ol id="atlasHistoryList" class="history-list"></ol>
+            </section>
+            <div id="atlasProposal" class="panel atlas-proposal" hidden>
+                <p id="atlasProposalText" class="atlas-proposal-text"></p>
+                <div class="atlas-proposal-actions">
+                    <button id="atlasDiscardBtn" class="action-btn" type="button" title="Drop the proposal; nothing changes">DISCARD</button>
+                    <button id="atlasApplyBtn" class="primary action-btn" type="button" title="Make the proposed changes (Ctrl+Z undoes them)">APPLY</button>
+                </div>
+            </div>
         </div>
         <div class="seg-row seg-row--2 mode-dock" id="modeSeg" role="group" aria-label="Mode">
             <button class="seg is-active" type="button" data-mode="rip" title="Mark quads on an image">RIP</button>
@@ -282,7 +297,7 @@
                 </section>
                 <section class="help-card">
                     <h3>6. Atlas</h3>
-                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag on empty canvas to select the tiles a frame touches (Shift adds). Drag tiles; they snap to sector borders, other tiles (flush or at the padding) and the grid, and Ctrl+drag moves without snapping. Scale them by a corner, rotate with R or by dragging just outside a corner (Shift snaps to 15 degrees). Each tile turns about its pivot: Alt+drag moves it, Alt+double-click puts it back in the centre, Alt+corner scales about it. Guides LOAD puts a UV-layout PNG under the tiles of a sector; a name.1001.png set goes to sectors by number. Hold G to see the guides above the tiles in magenta. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...); Fill EXTEND spreads the tile edges by Edge px. Ctrl+Z undoes your own changes. SAVE keeps everything in a .ripper file.</p>
+                    <p>Tick Atlas in Output and every SEND or SAVE ALL also lands as a tile in the current workspace, ShareX captures included. Switch to ATLAS to arrange them: the canvas holds square sectors of one size; select a sector and use its + buttons to add neighbours. New tiles fill the free space of the last selected sector; what does not fit waits beside the grid and is not exported. Drag on empty canvas to select the tiles a frame touches (Shift adds). Drag tiles; they snap to sector borders, other tiles (flush or at the padding) and the grid, and Ctrl+drag moves without snapping. Scale them by a corner, rotate with R or by dragging just outside a corner (Shift snaps to 15 degrees). Each tile turns about its pivot: Alt+drag moves it, Alt+double-click puts it back in the centre, Alt+corner scales about it. Guides LOAD puts a UV-layout PNG under the tiles of a sector; a name.1001.png set goes to sectors by number. Hold G to see the guides above the tiles in magenta. EXPORT writes one sector, the selected sectors as one sheet, or a numbered set (name.1001.png...); Fill EXTEND spreads the tile edges by Edge px. Ctrl+Z undoes your own changes. SAVE keeps everything in a .ripper file. An LLM connected through ripper-mcp.exe (see the README) can restyle the selected tiles or sectors; History, top left, lists every picture of the selected tile or sector: click one to bring it back, Ctrl+C and Ctrl+V paste it as a new tile. Layout changes from the LLM appear as a preview to APPLY or DISCARD.</p>
                 </section>
                 <section class="help-card">
                     <h3>Shortcuts</h3>
@@ -323,6 +338,8 @@
                         <dt>Ctrl+S</dt><dd>Save the workspace</dd>
                         <dt>Ctrl+Shift+S</dt><dd>Save as</dd>
                         <dt>Ctrl+O / Ctrl+N</dt><dd>Open / new workspace</dd>
+                        <dt>Click a History row</dt><dd>Bring that picture back</dd>
+                        <dt>Ctrl+C / Ctrl+V</dt><dd>Copy a History picture / paste it as a new tile</dd>
                     </dl>
                 </section>
             </div>

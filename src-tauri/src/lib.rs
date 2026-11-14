@@ -6,6 +6,7 @@ pub mod export;
 pub mod geom;
 pub mod launch;
 pub mod mask;
+pub mod mcp;
 pub mod settings;
 pub mod shape;
 pub mod source;

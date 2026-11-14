@@ -8,10 +8,20 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// Decodes a stored original to straight-alpha RGBA8.
+/// Decodes a tile's current full-size picture to straight-alpha RGBA8.
 pub fn load_original(ws: &Workspace, t: &Tile) -> std::result::Result<Image, String> {
-    let bytes = fs::read(ws.item_path(&t.item)).map_err(|e| format!("{}: {e}", t.item))?;
-    let img = image::load_from_memory(&bytes).map_err(|e| format!("{}: {e}", t.item))?.to_rgba8();
+    load_item(ws, &t.item)
+}
+
+/// Decodes a stored item to straight-alpha RGBA8.
+pub fn load_item(ws: &Workspace, item: &str) -> std::result::Result<Image, String> {
+    let bytes = fs::read(ws.item_path(item)).map_err(|e| format!("{item}: {e}"))?;
+    decode_png(&bytes).map_err(|e| format!("{item}: {e}"))
+}
+
+/// Decodes any supported image bytes to straight-alpha RGBA8.
+pub fn decode_png(bytes: &[u8]) -> std::result::Result<Image, String> {
+    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?.to_rgba8();
     Ok(Image { w: img.width(), h: img.height(), rgba: img.into_raw() })
 }
 

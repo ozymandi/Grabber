@@ -7,3 +7,4 @@ pub mod place;
 pub mod render;
 pub mod files;
 pub mod edit;
+pub mod history;

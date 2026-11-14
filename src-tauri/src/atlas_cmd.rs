@@ -248,3 +248,88 @@ pub fn serve_thumbnail(state: &AppState, path: &str, query: Option<&str>) -> Opt
     }
     files::thumbnail(&ws, item, max).ok()
 }
+
+// --- LLM editing (OpenSpec change add-mcp-editing) ------------------------------------------
+
+/// The ATLAS selection for the MCP server's scope (design D5): written on every selection change
+/// and as a heartbeat while ATLAS is visible.
+#[tauri::command]
+pub fn atlas_publish_ui(tiles: Vec<u64>, sectors: Vec<Sector>, state: State<'_, AppState>) -> Result<(), String> {
+    let ws = state.current_workspace().map_err(err)?;
+    let s = ripper_core::mcp::UiState { tiles, sectors, at: ripper_core::mcp::now_ms() };
+    let path = ws.dir.join(ripper_core::mcp::UI_STATE);
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, serde_json::to_vec(&s).unwrap()).and_then(|_| std::fs::rename(&tmp, &path)).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct ProposalView {
+    pub proposal: ripper_core::mcp::Proposal,
+    /// The workspace as it would be after APPLY, for the preview.
+    pub preview: ripper_core::atlas::model::Manifest,
+    /// Parts that would not apply to the workspace as it is now.
+    pub skipped: Vec<String>,
+}
+
+/// The pending LLM proposal of the current workspace, with its preview (design D7).
+#[tauri::command]
+pub fn atlas_proposal(state: State<'_, AppState>) -> Result<Option<ProposalView>, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    let Ok(text) = std::fs::read_to_string(ws.dir.join(ripper_core::mcp::PROPOSAL)) else { return Ok(None) };
+    let Ok(proposal) = serde_json::from_str::<ripper_core::mcp::Proposal>(&text) else { return Ok(None) };
+    let mut preview = ws.read().map_err(err)?;
+    let (_, skipped, _) = ripper_core::atlas::edit::apply_steps(&mut preview, proposal.edits.clone());
+    Ok(Some(ProposalView { proposal, preview, skipped }))
+}
+
+/// APPLY: makes the proposal's changes as one step and removes it; the inverse is the undo step.
+#[tauri::command]
+pub async fn atlas_apply_proposal(state: State<'_, AppState>) -> Result<StepsResult, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    let path = ws.dir.join(ripper_core::mcp::PROPOSAL);
+    let text = std::fs::read_to_string(&path).map_err(|_| "The proposal is gone".to_string())?;
+    let proposal: ripper_core::mcp::Proposal = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let w = ws.clone();
+    let (_, inverse, skipped, released) = async_runtime::spawn_blocking(move || w.apply_steps(proposal.edits))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
+    let _ = std::fs::remove_file(&path);
+    state.hold(released);
+    Ok(StepsResult { doc: state.store.doc(&ws).map_err(err)?, inverse, skipped })
+}
+
+/// DISCARD: removes the proposal; nothing in the workspace changes.
+#[tauri::command]
+pub fn atlas_discard_proposal(state: State<'_, AppState>) -> Result<(), String> {
+    let ws = state.current_workspace().map_err(err)?;
+    match std::fs::remove_file(ws.dir.join(ripper_core::mcp::PROPOSAL)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct HistoryResult {
+    pub doc: Doc,
+    /// Tiles of a sector entry that could not go back.
+    pub skipped: Vec<String>,
+}
+
+/// History panel: makes a tile's picture state current (spec atlas-history "Go to a state").
+/// Not an undo step.
+#[tauri::command]
+pub async fn atlas_go_to_state(tile: u64, index: usize, state: State<'_, AppState>) -> Result<HistoryResult, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    ws.mutate(|m| m.go_to_state(tile, index)).map_err(err)?;
+    Ok(HistoryResult { doc: state.store.doc(&ws).map_err(err)?, skipped: Vec::new() })
+}
+
+/// History panel: goes to a sector entry, or with `before` to the state before it.
+#[tauri::command]
+pub async fn atlas_go_to_entry(entry: usize, before: bool, state: State<'_, AppState>) -> Result<HistoryResult, String> {
+    let ws = state.current_workspace().map_err(err)?;
+    let (_, skipped) = ws.mutate(|m| m.go_to_entry(entry, before)).map_err(err)?;
+    Ok(HistoryResult { doc: state.store.doc(&ws).map_err(err)?, skipped })
+}

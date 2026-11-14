@@ -5,6 +5,7 @@ import { setStatus } from '../status.js';
 import { AtlasCanvas, sectorRect } from './canvas.js';
 import * as F from './frame.js';
 import { setNameField } from '../name-field.js';
+import { copied, copyChosen, initHistory, renderHistory } from './history-panel.js';
 
 const el = (id) => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
@@ -17,6 +18,11 @@ let scope = 'sector';
 let nameTouched = false;
 let polling = null;
 let busy = false;
+
+// LLM editing (add-mcp-editing): the published selection (D5) and the pending proposal (D7).
+const HEARTBEAT = 2000;
+let published = { key: '', at: 0 };
+let proposalKey = '';
 
 // Undo history of this window (design D6 of add-atlas-fine-work): each step is the list of
 // edits that reverses it, computed by Rust. Lost with the window; cleared by NEW and OPEN.
@@ -131,6 +137,93 @@ function render() {
     el('atlasExportCount').textContent = n === 0 ? 'active sector' : `${n} sector${n === 1 ? '' : 's'}`;
     for (const b of el('atlasScopeSeg').querySelectorAll('.seg')) b.classList.toggle('is-active', b.dataset.scope === scope);
     if (!nameTouched) el('atlasExportName').value = m.name;
+    renderHistory(doc, canvas);
+    publishUi(false);
+}
+
+/** History panel: goes to a row's state (spec atlas-history "Go to a state"; not an undo step). */
+async function goToRow(r) {
+    if (busy || canvas.busy) return;
+    busy = true;
+    try {
+        const res = r.kind === 'tile' ? await invoke('atlas_go_to_state', { tile: r.tile, index: r.index }) : await invoke('atlas_go_to_entry', { entry: r.entry, before: r.before });
+        setDoc(res.doc);
+        if (res.skipped.length) setStatus(`Not changed: ${res.skipped.join('; ')}`, 'error');
+    } catch (e) {
+        setStatus(errText(e), 'error');
+    } finally {
+        busy = false;
+    }
+}
+
+/** Ctrl+V: pastes the copied History picture(s) as new tiles in the active sector (one undo step). */
+async function pasteCopied() {
+    const p = copied();
+    if (!p) return setStatus('Nothing copied: right-click a History row, or click it and press Ctrl+C');
+    const r = await edit({ op: 'paste_states', tiles: p.tiles });
+    if (r) setStatus(`Pasted ${p.tiles.length} tile${p.tiles.length === 1 ? '' : 's'}`, 'success');
+}
+
+/** Writes the selection for the MCP server when it changed, or as a heartbeat (design D5). */
+function publishUi(heartbeat) {
+    if (!visible || !canvas) return;
+    const tiles = [...canvas.selTiles];
+    const sectors = canvas.selSectors.map((s) => ({ u: s.u, v: s.v }));
+    const key = JSON.stringify([doc?.id, tiles, sectors]);
+    const now = Date.now();
+    if (key === published.key && !(heartbeat && now - published.at >= HEARTBEAT)) return;
+    published = { key, at: now };
+    invoke('atlas_publish_ui', { tiles, sectors }).catch(() => {
+        published.key = ''; // retried on the next change or heartbeat
+    });
+}
+
+/** Shows or hides the pending LLM proposal (design D7). */
+function showProposal(view) {
+    const key = view ? JSON.stringify([view.proposal, doc?.manifest.revision]) : '';
+    if (key === proposalKey) return;
+    proposalKey = key;
+    canvas.proposal = view;
+    el('atlasProposal').hidden = !view;
+    if (view) {
+        const skipped = view.skipped.length ? `\nCannot apply now: ${view.skipped.join('; ')}` : '';
+        el('atlasProposalText').textContent = `${view.proposal.by} proposes: ${view.proposal.text}${skipped}`;
+    }
+    canvas.request();
+}
+
+async function pollProposal() {
+    try {
+        showProposal(await invoke('atlas_proposal'));
+    } catch {
+        /* the next poll retries */
+    }
+}
+
+async function applyProposal() {
+    if (busy || canvas.busy) return;
+    busy = true;
+    try {
+        const r = await invoke('atlas_apply_proposal');
+        setDoc(r.doc);
+        pushStep('LLM proposal', r.inverse);
+        showProposal(null);
+        setStatus(r.skipped.length ? `Applied the proposal; skipped: ${r.skipped.join('; ')}` : 'Applied the proposal', r.skipped.length ? 'error' : 'success');
+    } catch (e) {
+        setStatus(errText(e), 'error');
+    } finally {
+        busy = false;
+    }
+}
+
+async function discardProposal() {
+    try {
+        await invoke('atlas_discard_proposal');
+        showProposal(null);
+        setStatus('Discarded the proposal');
+    } catch (e) {
+        setStatus(errText(e), 'error');
+    }
 }
 
 function setDoc(d) {
@@ -288,6 +381,12 @@ export function atlasKey(e) {
     } else if (ctrl && e.code === 'KeyS') {
         e.preventDefault();
         if (!e.repeat) (e.shiftKey ? saveAs() : save());
+    } else if (ctrl && e.code === 'KeyC' && !e.shiftKey) {
+        if (!copyChosen({ doc: () => doc, status: (t) => setStatus(t) })) return false;
+        e.preventDefault();
+    } else if (ctrl && e.code === 'KeyV' && !e.shiftKey) {
+        e.preventDefault();
+        if (!e.repeat) pasteCopied();
     } else if (ctrl && e.code === 'KeyO') {
         e.preventDefault();
         openFile();
@@ -333,6 +432,8 @@ async function poll() {
     } catch {
         /* the next poll retries */
     }
+    await pollProposal();
+    publishUi(true);
 }
 
 export async function showAtlas() {
@@ -384,6 +485,9 @@ export function initAtlas() {
         nameTouched = true;
     });
     el('atlasExportBtn').addEventListener('click', exportSectors);
+    el('atlasApplyBtn').addEventListener('click', applyProposal);
+    initHistory({ doc: () => doc, go: goToRow, status: (t) => setStatus(t) });
+    el('atlasDiscardBtn').addEventListener('click', discardProposal);
 
     el('atlasGuideLoadBtn').addEventListener('click', loadGuides);
     el('atlasGuideRemoveBtn').addEventListener('click', () => {

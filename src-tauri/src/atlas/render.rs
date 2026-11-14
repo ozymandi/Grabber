@@ -3,7 +3,7 @@
 //! ([`crate::warp::warp`]) with its Jacobian-adaptive supersampling. Outputs start fully
 //! transparent; tiles are composited source-over in manifest order and clipped per sector.
 
-use super::model::{turn, udim, Fill, Frame, Manifest, Rect, Refused, Sector, Tile};
+use super::model::{turn, udim, Fill, Filter, Frame, Manifest, Rect, Refused, Sector, Tile};
 use rayon::prelude::*;
 use crate::warp::{self, Rgba};
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,35 @@ pub fn render_tile(original: &Image, rot: u8, w: u32, h: u32) -> Image {
     let corners = rotated_corners(original.w, original.h, rot);
     let rgba = warp::warp(&src, &corners, w, h).unwrap_or_else(|| vec![0; w as usize * h as usize * 4]);
     Image { w, h, rgba }
+}
+
+/// Scales `src` to `w x h` without smoothing: each output pixel takes the source pixel under
+/// its centre, so pixel art keeps hard blocks (add-mcp-editing D6).
+pub fn scale_nearest(src: &Image, w: u32, h: u32) -> Image {
+    let (sw, sh) = (src.w as usize, src.h as usize);
+    let (w, h) = (w as usize, h as usize);
+    let mut out = vec![0u8; w * h * 4];
+    if sw > 0 && sh > 0 {
+        for y in 0..h {
+            let sy = ((y * 2 + 1) * sh / (h * 2)).min(sh - 1);
+            for x in 0..w {
+                let sx = ((x * 2 + 1) * sw / (w * 2)).min(sw - 1);
+                let s = (sy * sw + sx) * 4;
+                out[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&src.rgba[s..s + 4]);
+            }
+        }
+    }
+    Image { w: w as u32, h: h as u32, rgba: out }
+}
+
+/// [`render_frame`] with the picture's [`Filter`]: `Nearest` scales the picture to the frame
+/// size without smoothing first, then places it exactly (or through the tilt sampler).
+pub fn render_frame_filtered(original: &Image, f: &Frame, filter: Filter) -> Image {
+    if filter == Filter::Smooth || (original.w as i64, original.h as i64) == (f.w, f.h) {
+        return render_frame(original, f);
+    }
+    let scaled = scale_nearest(original, f.w.max(1) as u32, f.h.max(1) as u32);
+    render_frame(&scaled, f)
 }
 
 /// Sub-samples per axis for tilted tiles: 16 coverage levels on their edges.
@@ -155,7 +184,7 @@ pub fn render_area(
         }
         if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(t.id) {
             let original = load(t)?;
-            e.insert(render_frame(&original, &t.frame));
+            e.insert(render_frame_filtered(&original, &t.frame, t.filter()));
         }
         let img = &cache[&t.id];
         for c in cells {
@@ -407,7 +436,7 @@ mod tests {
     }
 
     fn tile(id: u64, x: i64, y: i64, o: &Image, rot: u8) -> Tile {
-        Tile { id, item: format!("{id}"), w0: o.w, h0: o.h, frame: frame(x, y, o, rot), source: Provenance::default() }
+        Tile { id, item: format!("{id}"), w0: o.w, h0: o.h, frame: frame(x, y, o, rot), source: Provenance::default(), history: Vec::new(), current: 0 }
     }
 
     fn px(i: &Image, x: u32, y: u32) -> [u8; 4] {
@@ -440,6 +469,22 @@ mod tests {
         assert_eq!((small.w, small.h), (20, 11));
         // Back to full size renders from the original, not from the small copy.
         assert_eq!(render_tile(&o, 0, 160, 90), o);
+    }
+
+    #[test]
+    fn nearest_state_renders_hard_blocks() {
+        let o = noise(64, 64);
+        let f = Frame::from_rect(Rect { x: 0, y: 0, w: 512, h: 512 });
+        let out = render_frame_filtered(&o, &f, Filter::Nearest);
+        assert_eq!((out.w, out.h), (512, 512));
+        for y in 0..512usize {
+            for x in 0..512usize {
+                let s = ((y / 8) * 64 + x / 8) * 4;
+                assert_eq!(&out.rgba[(y * 512 + x) * 4..(y * 512 + x) * 4 + 4], &o.rgba[s..s + 4], "({x}, {y})");
+            }
+        }
+        // Smooth is the old path, byte for byte.
+        assert_eq!(render_frame_filtered(&o, &f, Filter::Smooth), render_frame(&o, &f));
     }
 
     #[test]

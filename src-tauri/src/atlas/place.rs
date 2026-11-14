@@ -87,7 +87,7 @@ mod tests {
     use crate::atlas::model::{Frame, Provenance, Side, Tile};
 
     fn tile(id: u64, r: Rect) -> Tile {
-        Tile { id, item: format!("{id}.png"), w0: r.w as u32, h0: r.h as u32, frame: Frame::from_rect(r), source: Provenance::default() }
+        Tile { id, item: format!("{id}.png"), w0: r.w as u32, h0: r.h as u32, frame: Frame::from_rect(r), source: Provenance::default(), history: Vec::new(), current: 0 }
     }
 
     fn add(m: &mut Manifest, p: Placement) {
