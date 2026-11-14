@@ -99,7 +99,7 @@ OpenSpec: зміна заархівована в `openspec/changes/archive/2026-
        - Ctrl+Shift+F11 перевірено: двічі Enter дає `*.tex.png` і цілий оригінал, Esc не створює файлу;
        - стару копію `Programs\ripper` видалено.
      - Встановлена 1.0.0 проти справжнього GitHub кнопку оновлення не показує (вона найновіша).
-     - Наступне по цій зміні: `/opsx:archive add-installer-updater`.
+     - Заархівовано 2026-11-14 в `openspec/changes/archive/2026-11-14-add-installer-updater/`. Створено основну специфікацію `openspec/specs/app-distribution` з 9 вимогами.
      - Сценарій «Install update» на справжньому GitHub уперше пройде з релізом 2.0.0.
      - Готово:
        - updater на Rust (`update.rs`, `update_policy.rs`; 54 тести);
